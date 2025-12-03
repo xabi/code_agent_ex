@@ -72,6 +72,7 @@ defmodule CodeAgentMinimal.AgentConfig do
 
   defstruct [
     :instructions,
+    :response_format,
     name: :agent,
     tools: [],
     managed_agents: [],
@@ -98,6 +99,9 @@ defmodule CodeAgentMinimal.AgentConfig do
   - `:llm_opts` - Options additionnelles pour l'API LLM (défaut: [])
   - `:require_validation` - Requiert validation utilisateur (défaut: false)
   - `:backend` - Backend LLM à utiliser: :hf ou :mistral (défaut: :hf)
+  - `:response_format` - Format de réponse structuré pour le LLM (optionnel)
+    Peut être une map avec `type: "json_object"` et optionnellement `schema: {...}`
+    Exemple: `%{type: "json_object", schema: %{type: "object", properties: %{...}}}`
   """
   def new(opts \\ []) do
     struct!(__MODULE__, opts)
@@ -112,7 +116,7 @@ defmodule CodeAgentMinimal.AgentConfig do
   def to_tool(%__MODULE__{} = agent_config, listener_pid \\ nil) do
     %CodeAgentMinimal.Tool{
       name: agent_config.name,
-      description: "#{agent_config.instructions}. Call with: #{agent_config.name}.(task)",
+      description: "#{agent_config.instructions}. Call with: agents.#{agent_config.name}.(task)",
       inputs: %{
         "task" => %{
           type: "string",
@@ -150,7 +154,7 @@ defmodule CodeAgentMinimal.AgentConfig do
         )
       end
 
-      # Exécuter le sous-agent avec sa propre configuration
+      # Exécuter le sous-agent directement (pas de validation des sous-agents)
       result =
         case CodeAgent.run(task, agent_config) do
           {:ok, result, _state} ->

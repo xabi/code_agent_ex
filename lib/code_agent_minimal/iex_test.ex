@@ -33,7 +33,11 @@ defmodule CodeAgentMinimal.IexTest do
       {"Test 10: Managed agent Finance", &test10/0},
       {"Test 11: Managed agent Image FLUX", &test11/0},
       {"Test 12: Managed agent Moondream", &test12/0},
-      {"Test 13: Nested managed agents", &test13/0}
+      {"Test 13: Nested managed agents", &test13/0},
+      {"Test 14: Graphique équation du second degré", &test14/0},
+      {"Test 15: Génération d'image avec HF Inference API", &test15/0},
+      {"Test 16: Génération de vidéo avec HF Inference API", &test16/0}
+      # Note: test17 n'est pas dans test_all car il nécessite une interaction manuelle
     ]
 
     results =
@@ -391,14 +395,19 @@ defmodule CodeAgentMinimal.IexTest do
     list_images_tool = %Tool{
       name: :list_images,
       description:
-        "Lists all image files in a directory that start with a given prefix. Call with: list_images.(directory_path, prefix)",
+        "Lists all image files in a directory that start with a given prefix. Call with: tools.list_images.(directory_path, prefix)",
       inputs: %{
-        "directory_path" => %{type: "string", description: "Path to the directory (e.g., '/tmp/code_agent')"},
+        "directory_path" => %{
+          type: "string",
+          description: "Path to the directory (e.g., '/tmp/code_agent')"
+        },
         "prefix" => %{type: "string", description: "Prefix to filter files (e.g., 'agent_image')"}
       },
       output_type: "string",
       function: fn directory_path, prefix ->
-        directory_path = if is_list(directory_path), do: List.to_string(directory_path), else: directory_path
+        directory_path =
+          if is_list(directory_path), do: List.to_string(directory_path), else: directory_path
+
         prefix = if is_list(prefix), do: List.to_string(prefix), else: prefix
 
         case File.ls(directory_path) do
@@ -540,6 +549,369 @@ defmodule CodeAgentMinimal.IexTest do
   end
 
   @doc """
+  Test 14: Génération d'un graphique pour une équation du second degré.
+
+  Utilise Python pour tracer la courbe d'une équation ax² + bx + c et afficher ses racines.
+  """
+  def test14 do
+    alias CodeAgentMinimal.{AgentConfig, Tools.PythonTools}
+
+    # Créer le répertoire s'il n'existe pas
+    File.mkdir_p!("/tmp/code_agent")
+
+    # Créer un sous-agent spécialisé en Python avec matplotlib
+    python_agent =
+      AgentConfig.new(
+        name: :python_plotter,
+        instructions:
+          "Specialized agent for creating mathematical plots using Python and matplotlib",
+        tools: [PythonTools.python_interpreter()],
+        max_steps: 5
+      )
+
+    task = """
+    Use the python_plotter agent to create a graph for a quadratic equation (second degree equation).
+
+    Equation: f(x) = x² - 4x + 3
+
+    Requirements:
+    1. Calculate the roots (solutions) of the equation using the quadratic formula: x = (-b ± √(b²-4ac)) / 2a
+    2. Create a complete Python script that:
+       - Imports numpy and matplotlib.pyplot
+       - Calculates the discriminant and roots
+       - Creates x values from -1 to 5 with numpy.linspace
+       - Calculates y values: y = x**2 - 4*x + 3
+       - Plots the parabola curve
+       - Marks the roots with red dots ('ro', markersize=10, label='Roots')
+       - Calculates and marks the vertex at x=-b/(2a) with a green dot ('go', markersize=10, label='Vertex')
+       - Draws a horizontal line at y=0 (axhline(0, color='black', linewidth=0.5))
+       - Adds grid (grid(True))
+       - Labels axes (xlabel, ylabel)
+       - Adds title "Quadratic Equation: f(x) = x² - 4x + 3"
+       - Adds legend
+       - Saves to '/tmp/code_agent/quadratic_equation.png' using plt.savefig()
+       - Uses plt.close() after saving
+    3. After running the code, verify the file exists and return its path with the roots and vertex coordinates
+
+    IMPORTANT: Write the complete Python code in one execution. Make sure to use plt.savefig() before plt.close().
+    """
+
+    config =
+      AgentConfig.new(
+        tools: [],
+        managed_agents: [python_agent],
+        max_steps: 8
+      )
+
+    result = CodeAgent.run(task, config)
+
+    # Vérifier si le fichier a été créé
+    case result do
+      {:ok, _result, _state} ->
+        if File.exists?("/tmp/code_agent/quadratic_equation.png") do
+          file_info = File.stat!("/tmp/code_agent/quadratic_equation.png")
+
+          IO.puts(
+            "\n✅ Image créée avec succès: /tmp/code_agent/quadratic_equation.png (#{file_info.size} bytes)"
+          )
+        else
+          IO.puts("\n⚠️  L'agent a terminé mais le fichier n'a pas été trouvé")
+        end
+
+        result
+
+      error ->
+        error
+    end
+  end
+
+  @doc """
+  Test 15: Génération d'image avec l'API Hugging Face Inference.
+
+  Utilise le nouveau tool text_to_image et response_format pour retourner un JSON structuré.
+  """
+  def test15 do
+    alias CodeAgentMinimal.{AgentConfig, Tools.ImageTools}
+
+    task = """
+    Generate an image of a cute orange tabby cat sitting on a sunny windowsill, looking outside at birds.
+    The image should be photorealistic and warm in tone.
+
+    Use the text_to_image tool to generate the image.
+
+    IMPORTANT: Return a JSON object with the following structure:
+    {
+      "success": true,
+      "image_path": "/path/to/image.png",
+      "prompt_used": "the prompt you used",
+      "description": "brief description of what was generated"
+    }
+
+    If there was an error:
+    {
+      "success": false,
+      "error": "error message"
+    }
+    """
+
+    config =
+      AgentConfig.new(
+        tools: [ImageTools.text_to_image()],
+        response_format: %{type: "json_object"},
+        max_steps: 5
+      )
+
+    result = CodeAgent.run(task, config)
+
+    # Afficher le résultat et parser le JSON
+    case result do
+      {:ok, final_result, _state} ->
+        IO.puts("\n✅ Test terminé")
+        IO.puts("Résultat brut: #{inspect(final_result)}")
+
+        # Essayer de parser le JSON
+        case Jason.decode(final_result) do
+          {:ok, json_result} ->
+            IO.puts("\n📋 JSON parsé:")
+            IO.puts("  Success: #{json_result["success"]}")
+
+            if json_result["success"] do
+              IO.puts("  Image path: #{json_result["image_path"]}")
+              IO.puts("  Prompt used: #{json_result["prompt_used"]}")
+              IO.puts("  Description: #{json_result["description"]}")
+
+              # Vérifier si le fichier existe
+              if json_result["image_path"] && File.exists?(json_result["image_path"]) do
+                file_info = File.stat!(json_result["image_path"])
+                IO.puts("\n✅ Image vérifiée: #{file_info.size} bytes")
+              else
+                IO.puts("\n⚠️  Fichier image non trouvé à: #{json_result["image_path"]}")
+              end
+            else
+              IO.puts("  Error: #{json_result["error"]}")
+            end
+
+          {:error, _reason} ->
+            IO.puts("\n⚠️  Le résultat n'est pas un JSON valide")
+            IO.puts("Résultat: #{final_result}")
+        end
+
+        result
+
+      error ->
+        IO.puts("\n❌ Erreur lors du test")
+        error
+    end
+  end
+
+  @doc """
+  Test 16: Génération de vidéo avec l'API Hugging Face Inference.
+
+  Utilise le tool text_to_video et response_format pour retourner un JSON structuré.
+  """
+  def test16 do
+    alias CodeAgentMinimal.{AgentConfig, Tools.ImageTools}
+
+    task = """
+    Generate a short video of a cat walking on a sunny beach with waves in the background.
+    The video should be photorealistic with smooth motion.
+
+    Use the text_to_video tool to generate the video.
+
+    IMPORTANT: Return a JSON object with the following structure:
+    {
+      "success": true,
+      "video_path": "/path/to/video.mp4",
+      "prompt_used": "the prompt you used",
+      "description": "brief description of the video content",
+      "duration": "estimated duration in seconds (if known)"
+    }
+
+    If there was an error:
+    {
+      "success": false,
+      "error": "error message"
+    }
+    """
+
+    config =
+      AgentConfig.new(
+        tools: [ImageTools.text_to_video()],
+        response_format: %{type: "json_object"},
+        max_steps: 5
+      )
+
+    result = CodeAgent.run(task, config)
+
+    # Afficher le résultat et parser le JSON
+    case result do
+      {:ok, final_result, _state} ->
+        IO.puts("\n✅ Test terminé")
+        IO.puts("Résultat brut: #{inspect(final_result)}")
+
+        # Essayer de parser le JSON
+        case Jason.decode(final_result) do
+          {:ok, json_result} ->
+            IO.puts("\n📋 JSON parsé:")
+            IO.puts("  Success: #{json_result["success"]}")
+
+            if json_result["success"] do
+              IO.puts("  Video path: #{json_result["video_path"]}")
+              IO.puts("  Prompt used: #{json_result["prompt_used"]}")
+              IO.puts("  Description: #{json_result["description"]}")
+
+              if json_result["duration"] do
+                IO.puts("  Duration: #{json_result["duration"]}s")
+              end
+
+              # Vérifier si le fichier existe
+              if json_result["video_path"] && File.exists?(json_result["video_path"]) do
+                file_info = File.stat!(json_result["video_path"])
+                IO.puts("\n✅ Vidéo vérifiée: #{file_info.size} bytes")
+              else
+                IO.puts("\n⚠️  Fichier vidéo non trouvé à: #{json_result["video_path"]}")
+              end
+            else
+              IO.puts("  Error: #{json_result["error"]}")
+            end
+
+          {:error, _reason} ->
+            IO.puts("\n⚠️  Le résultat n'est pas un JSON valide")
+            IO.puts("Résultat: #{final_result}")
+        end
+
+        result
+
+      error ->
+        IO.puts("\n❌ Erreur lors du test")
+        error
+    end
+  end
+
+  @doc """
+  Test 17: Démonstration de continue_validation.
+
+  Ce test montre comment utiliser le système de validation humaine (human-in-the-loop)
+  avec require_validation: true sur l'agent principal.
+
+  NOTE: Seul l'agent principal peut être validé. Les managed agents s'exécutent
+  sans validation.
+
+  ## Utilisation:
+
+  1. Lancer le test:
+     iex> {status, thought, code, state} = IexTest.test17()
+
+  2. Le test retournera {:pending_validation, thought, code, state}
+
+  3. Vous pouvez alors:
+     - Approuver: CodeAgent.continue_validation(state, :approve)
+     - Modifier: CodeAgent.continue_validation(state, {:modify, "nouveau_code"})
+     - Donner feedback: CodeAgent.continue_validation(state, {:feedback, "suggestion"})
+     - Rejeter: CodeAgent.continue_validation(state, :reject)
+
+  ## Exemple complet:
+
+      # Lancer le test
+      iex> {status, thought, code, state} = IexTest.test17()
+      # => {:pending_validation, "I need to...", "result = 10 + 20", %State{}}
+
+      # Approuver l'exécution
+      iex> CodeAgent.continue_validation(state, :approve)
+      # => Continue et retourne {:ok, result, state} ou {:pending_validation, ...} si autre step
+
+      # Ou modifier le code avant exécution
+      iex> CodeAgent.continue_validation(state, {:modify, "result = 15 + 25"})
+      # => Exécute le code modifié
+
+      # Ou rejeter
+      iex> CodeAgent.continue_validation(state, :reject)
+      # => {:error, "Validation rejected by user", state}
+  """
+  def test17 do
+    alias CodeAgentMinimal.{AgentConfig, Tools.PythonTools}
+
+    IO.puts("""
+
+    🔒 Test 17: Validation humaine (Human-in-the-loop)
+
+    Ce test utilise require_validation sur l'agent principal.
+    L'agent s'arrêtera et attendra votre validation avant d'exécuter du code.
+    """)
+
+    task = """
+    Calculate the factorial of 5 using Python.
+
+    Use the python_interpreter tool with Python's math.factorial function.
+
+    Return the final result as a simple number.
+    """
+
+    config =
+      AgentConfig.new(
+        tools: [PythonTools.python_interpreter()],
+        require_validation: true,
+        max_steps: 5
+      )
+
+    IO.puts("\n📋 Task: Calculate factorial of 5 using Python")
+    IO.puts("🔧 Config: require_validation = true on main agent\n")
+
+    result = CodeAgent.run(task, config)
+
+    case result do
+      {:pending_validation, thought, code, state} ->
+        IO.puts("""
+
+        ⏸️  EXECUTION PAUSED - Validation Required
+
+        Thought: #{thought}
+
+        Code to execute:
+        #{String.split(code, "\n") |> Enum.map(&("  " <> &1)) |> Enum.join("\n")}
+
+        📝 To continue, use one of these commands:
+
+        # Approve and execute
+        CodeAgent.continue_validation(state, :approve)
+
+        # Modify code before executing
+        CodeAgent.continue_validation(state, {:modify, "your_modified_code"})
+
+        # Give feedback without executing
+        CodeAgent.continue_validation(state, {:feedback, "your feedback message"})
+
+        # Reject and stop
+        CodeAgent.continue_validation(state, :reject)
+
+        The state variable is returned above: state = #{inspect(state |> Map.take([:current_step, :config]))}
+        """)
+
+        {:pending_validation, thought, code, state}
+
+      {:ok, final_result, state} ->
+        IO.puts("""
+
+        ✅ Test completed without requiring validation
+        Result: #{final_result}
+        Steps: #{state.current_step}/#{state.config.max_steps}
+        """)
+
+        {:ok, final_result, state}
+
+      {:error, reason, state} ->
+        IO.puts("""
+
+        ❌ Test failed
+        Error: #{inspect(reason)}
+        Steps: #{state.current_step}/#{state.config.max_steps}
+        """)
+
+        {:error, reason, state}
+    end
+  end
+
+  @doc """
   Test rapide - alias pour test_custom.
   """
   def run(task, opts \\ []), do: test_custom(task, opts)
@@ -567,6 +939,10 @@ defmodule CodeAgentMinimal.IexTest do
     - test11()  - FLUX image generation
     - test12()  - Moondream image analysis
     - test13()  - Nested managed agents (agents imbriqués)
+    - test14()  - Graphique équation du second degré
+    - test15()  - Génération d'image avec HF Inference API
+    - test16()  - Génération de vidéo avec HF Inference API
+    - test17()  - Validation humaine (Human-in-the-loop) sur agent principal
 
     ## Tests globaux
     - test_all()  - Lance tous les tests

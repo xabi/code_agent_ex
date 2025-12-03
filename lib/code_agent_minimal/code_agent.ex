@@ -144,8 +144,39 @@ defmodule CodeAgentMinimal.CodeAgent do
     # Construire les messages pour le LLM
     messages = build_messages(state)
 
+    # Détecter si c'est la dernière étape (pour appliquer response_format custom)
+    is_final_step = step >= state.config.max_steps
+
+    # Définir le response_format approprié
+    llm_opts =
+      cond do
+        # Dernière étape avec response_format custom
+        is_final_step && state.config.response_format ->
+          Keyword.put(state.config.llm_opts, :response_format, state.config.response_format)
+
+        # Étapes intermédiaires : forcer JSON pour code generation
+        not is_final_step ->
+          code_response_format = %{
+            type: "json_object",
+            schema: %{
+              type: "object",
+              properties: %{
+                thought: %{type: "string", description: "Your reasoning about what to do next"},
+                code: %{type: "string", description: "The Elixir code to execute"}
+              },
+              required: ["thought", "code"]
+            }
+          }
+
+          Keyword.put(state.config.llm_opts, :response_format, code_response_format)
+
+        # Pas de response_format
+        true ->
+          state.config.llm_opts
+      end
+
     # Appeler le LLM
-    case call_llm(state.config.model, messages, state.config.llm_opts, state.config.backend) do
+    case call_llm(state.config.model, messages, llm_opts, state.config.backend) do
       {:ok, response} ->
         # Parser la réponse pour extraire le code
         case parse_response(response) do
@@ -286,6 +317,7 @@ defmodule CodeAgentMinimal.CodeAgent do
   def continue_validation(decision, {thought, code, state}) do
     step = state.current_step
 
+    # Gestion de la décision de validation
     case decision do
       :approve ->
         execute_code(code, thought, step, state)
@@ -348,32 +380,20 @@ defmodule CodeAgentMinimal.CodeAgent do
 
   # Parse la réponse du LLM pour extraire le code
   defp parse_response(response) do
-    # Chercher un bloc de code Elixir
-    code_regex = ~r/```elixir\s*([\s\S]*?)```/
+    case Jason.decode(response) do
+      {:ok, %{"thought" => thought, "code" => code}} ->
+        {:code, thought, code}
 
-    case Regex.run(code_regex, response) do
-      [_, code] ->
-        # Extraire la pensée (tout ce qui précède le code)
-        thought =
-          response
-          |> String.split("```elixir")
-          |> List.first()
-          |> String.trim()
+      {:ok, json_response} ->
+        # JSON valide mais pas le format attendu pour le code
+        # Peut-être une réponse finale en JSON (dernière étape)
+        {:final_text, Jason.encode!(json_response)}
 
-        {:code, thought, String.trim(code)}
-
-      nil ->
-        # Pas de code - vérifier si c'est une réponse finale directe
-        if String.contains?(response, "final_answer") do
-          {:error, "Response mentions final_answer but no code block found"}
-        else
-          # Réponse textuelle directe
-          {:final_text, String.trim(response)}
-        end
+      {:error, parse_error} ->
+        {:error, "Failed to parse JSON response: #{inspect(parse_error)}\nResponse: #{String.slice(response, 0, 200)}"}
     end
   end
 
-  # Vérifie si le résultat est un final_answer
   defp check_final_answer(_result, binding) do
     # Vérifier si __final_answer__ est dans le binding
     case Map.get(binding, :__final_answer__) do

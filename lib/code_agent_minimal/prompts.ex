@@ -52,10 +52,19 @@ defmodule CodeAgentMinimal.Prompts do
 
     ## How to respond
 
-    For each step, you should:
-    1. Think about what you need to do
-    2. Write Elixir code in a ```elixir code block
-    3. The code will be executed and you'll see the result
+    You MUST respond with a JSON object in the following format:
+    {
+      "thought": "Your reasoning about what to do next",
+      "code": "The Elixir code to execute"
+    }
+
+    Example:
+    {
+      "thought": "I need to calculate the sum of 10 and 20",
+      "code": "result = 10 + 20\\nresult"
+    }
+
+    The code will be executed in a sandbox and you'll see the result.
 
     ## Available Tools
 
