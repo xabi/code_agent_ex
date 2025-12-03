@@ -13,7 +13,7 @@ defmodule CodeAgentMinimal.Tools.FinanceTools do
   def stock_price do
     %CodeAgentMinimal.Tool{
       name: :stock_price,
-      description: "Gets current stock price and basic info. Call with: stock_price.(ticker) e.g. stock_price.('AAPL')",
+      description: "Gets current stock price and basic info. Call with: tools.stock_price.(ticker) e.g. stock_price.('AAPL')",
       inputs: %{
         "ticker" => %{type: "string", description: "Stock ticker symbol (e.g., 'AAPL', 'GOOGL', 'TSLA')"}
       },
@@ -86,7 +86,7 @@ defmodule CodeAgentMinimal.Tools.FinanceTools do
   def stock_history do
     %CodeAgentMinimal.Tool{
       name: "stock_history",
-      description: "Gets stock price history. Call with: stock_history.(ticker, period). Periods: '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', 'ytd', 'max'",
+      description: "Gets stock price history. Call with: tools.stock_history.(ticker, period). Periods: '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y', 'ytd', 'max'",
       inputs: %{
         "ticker" => %{type: "string", description: "Stock ticker symbol"},
         "period" => %{type: "string", description: "History period (default: '1mo')"}
@@ -160,7 +160,7 @@ defmodule CodeAgentMinimal.Tools.FinanceTools do
   def stock_info do
     %CodeAgentMinimal.Tool{
       name: "stock_info",
-      description: "Gets detailed company information. Call with: stock_info.(ticker)",
+      description: "Gets detailed company information. Call with: tools.stock_info.(ticker)",
       inputs: %{
         "ticker" => %{type: "string", description: "Stock ticker symbol"}
       },
@@ -229,7 +229,7 @@ defmodule CodeAgentMinimal.Tools.FinanceTools do
   def compare_stocks do
     %CodeAgentMinimal.Tool{
       name: "compare_stocks",
-      description: "Compares multiple stocks (up to 5). Call with: compare_stocks.(tickers) e.g. compare_stocks.('AAPL,GOOGL,MSFT')",
+      description: "Compares multiple stocks (up to 5). Call with: tools.compare_stocks.(tickers) e.g. compare_stocks.('AAPL,GOOGL,MSFT')",
       inputs: %{
         "tickers" => %{type: "string", description: "Comma-separated list of tickers"}
       },

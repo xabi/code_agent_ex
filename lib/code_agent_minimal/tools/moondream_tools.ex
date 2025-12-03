@@ -13,7 +13,7 @@ defmodule CodeAgentMinimal.Tools.MoondreamTools do
   def caption do
     %CodeAgentMinimal.Tool{
       name: :moondream_caption,
-      description: "Generates a descriptive caption for an image. Call with: moondream_caption.(image_path)",
+      description: "Generates a descriptive caption for an image. Call with: tools.moondream_caption.(image_path)",
       inputs: %{
         "image_path" => %{type: "string", description: "Path to the image file"}
       },
@@ -54,7 +54,7 @@ defmodule CodeAgentMinimal.Tools.MoondreamTools do
   def query do
     %CodeAgentMinimal.Tool{
       name: :moondream_query,
-      description: "Answers a specific question about an image. Call with: moondream_query.(image_path, question)",
+      description: "Answers a specific question about an image. Call with: tools.moondream_query.(image_path, question)",
       inputs: %{
         "image_path" => %{type: "string", description: "Path to the image file"},
         "question" => %{type: "string", description: "Question to ask about the image"}
@@ -96,7 +96,7 @@ defmodule CodeAgentMinimal.Tools.MoondreamTools do
   def detect do
     %CodeAgentMinimal.Tool{
       name: "moondream_detect",
-      description: "Detects and locates specific objects in an image with bounding boxes. Call with: moondream_detect.(image_path, object)",
+      description: "Detects and locates specific objects in an image with bounding boxes. Call with: tools.moondream_detect.(image_path, object)",
       inputs: %{
         "image_path" => %{type: "string", description: "Path to the image file"},
         "object" => %{type: "string", description: "Object to detect (e.g., 'person', 'car', 'dog')"}
@@ -155,7 +155,7 @@ defmodule CodeAgentMinimal.Tools.MoondreamTools do
   def point do
     %CodeAgentMinimal.Tool{
       name: "moondream_point",
-      description: "Locates a specific point of interest in an image (returns x, y coordinates). Call with: moondream_point.(image_path, object)",
+      description: "Locates a specific point of interest in an image (returns x, y coordinates). Call with: tools.moondream_point.(image_path, object)",
       inputs: %{
         "image_path" => %{type: "string", description: "Path to the image file"},
         "object" => %{type: "string", description: "Element to locate (e.g., 'face', 'text', 'logo')"}

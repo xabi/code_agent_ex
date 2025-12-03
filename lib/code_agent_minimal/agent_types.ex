@@ -183,14 +183,86 @@ defmodule CodeAgentMinimal.AgentTypes do
     end
   end
 
+  defmodule AgentVideo do
+    @moduledoc """
+    Type pour les vidéos. Encapsule une vidéo et la rend accessible via un path.
+    """
+
+    defstruct [:path, :binary, :format, :duration, :width, :height]
+
+    @doc """
+    Crée un AgentVideo depuis un path existant.
+    """
+    def from_path(path, opts \\ []) when is_binary(path) do
+      if File.exists?(path) do
+        %__MODULE__{
+          path: path,
+          format: Path.extname(path) |> String.trim_leading("."),
+          duration: Keyword.get(opts, :duration),
+          width: Keyword.get(opts, :width),
+          height: Keyword.get(opts, :height)
+        }
+      else
+        {:error, "File not found: #{path}"}
+      end
+    end
+
+    @doc """
+    Crée un AgentVideo depuis des données binaires.
+    """
+    def from_binary(data, format \\ "mp4", opts \\ []) when is_binary(data) do
+      filename = "agent_video_#{:erlang.unique_integer([:positive])}.#{format}"
+      path = Path.join(CodeAgentMinimal.AgentTypes.tmp_dir(), filename)
+
+      case File.write(path, data) do
+        :ok ->
+          %__MODULE__{
+            path: path,
+            binary: data,
+            format: format,
+            duration: Keyword.get(opts, :duration),
+            width: Keyword.get(opts, :width),
+            height: Keyword.get(opts, :height)
+          }
+
+        {:error, reason} ->
+          {:error, "Failed to write video: #{reason}"}
+      end
+    end
+
+    @doc """
+    Retourne le path de la vidéo.
+    """
+    def to_string(%__MODULE__{path: path}), do: path
+
+    @doc """
+    Retourne les données binaires.
+    """
+    def to_binary(%__MODULE__{binary: nil, path: path}) do
+      File.read!(path)
+    end
+
+    def to_binary(%__MODULE__{binary: binary}), do: binary
+
+    @doc """
+    Nettoie le fichier temporaire.
+    """
+    def cleanup(%__MODULE__{path: path}) do
+      if path && String.starts_with?(path, CodeAgentMinimal.AgentTypes.tmp_dir()) do
+        File.rm(path)
+      end
+    end
+  end
+
   @doc """
   Convertit une valeur en sa représentation string pour le LLM.
 
-  - AgentImage/AgentAudio → path
+  - AgentImage/AgentAudio/AgentVideo → path
   - Autres → inchangé
   """
   def to_llm_value(%AgentImage{} = img), do: AgentImage.to_string(img)
   def to_llm_value(%AgentAudio{} = audio), do: AgentAudio.to_string(audio)
+  def to_llm_value(%AgentVideo{} = video), do: AgentVideo.to_string(video)
   def to_llm_value(value), do: value
 
   @doc """
@@ -198,6 +270,7 @@ defmodule CodeAgentMinimal.AgentTypes do
   """
   def agent_type?(%AgentImage{}), do: true
   def agent_type?(%AgentAudio{}), do: true
+  def agent_type?(%AgentVideo{}), do: true
   def agent_type?(_), do: false
 end
 
@@ -208,5 +281,10 @@ end
 
 # Implement String.Chars for AgentAudio
 defimpl String.Chars, for: CodeAgentMinimal.AgentTypes.AgentAudio do
+  def to_string(%{path: path}), do: path
+end
+
+# Implement String.Chars for AgentVideo
+defimpl String.Chars, for: CodeAgentMinimal.AgentTypes.AgentVideo do
   def to_string(%{path: path}), do: path
 end

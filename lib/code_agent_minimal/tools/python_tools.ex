@@ -61,8 +61,8 @@ defmodule CodeAgentMinimal.Tools.PythonTools do
         }
       },
       output_type: "string",
-      function: fn args ->
-        code = normalize_arg(args)
+      function: fn code ->
+        code = normalize_arg(code)
         execute_python(code, allowed_imports)
       end
     }
@@ -109,6 +109,7 @@ defmodule CodeAgentMinimal.Tools.PythonTools do
 
           {result, _globals} = Pythonx.eval(wrapped_code, %{})
           decoded_result = Pythonx.decode(result)
+          IO.inspect(decoded_result)
 
           case decoded_result do
             {"ok_with_image", base64_data, result_text} ->
@@ -148,7 +149,15 @@ defmodule CodeAgentMinimal.Tools.PythonTools do
   end
 
   # Normalize charlist to binary
-  defp normalize_arg(arg) when is_list(arg), do: List.to_string(arg)
+  defp normalize_arg(arg) when is_list(arg) do
+    # Check if it's a keyword list with :code key
+    if Keyword.keyword?(arg) and Keyword.has_key?(arg, :code) do
+      Keyword.get(arg, :code)
+    else
+      # It's a charlist, convert to string
+      List.to_string(arg)
+    end
+  end
   defp normalize_arg(arg) when is_map(arg), do: Map.get(arg, "code", "")
   defp normalize_arg(arg), do: arg
 

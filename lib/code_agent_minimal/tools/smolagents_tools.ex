@@ -14,7 +14,7 @@ defmodule CodeAgentMinimal.Tools.SmolAgentsTools do
   def web_search do
     %CodeAgentMinimal.Tool{
       name: :web_search,
-      description: "Searches the web using DuckDuckGo and returns relevant results. Call with: web_search.(query) or web_search.(query, max_results)",
+      description: "Searches the web using DuckDuckGo and returns relevant results. Call with: tools.web_search.(query) or web_search.(query, max_results)",
       inputs: %{
         "query" => %{type: "string", description: "Search query"}
       },
@@ -66,7 +66,7 @@ defmodule CodeAgentMinimal.Tools.SmolAgentsTools do
   def flux_image do
     %CodeAgentMinimal.Tool{
       name: :generate_flux_image,
-      description: "Generates an image using FLUX.1-schnell via HF Space. Call with: generate_flux_image.(prompt)",
+      description: "Generates an image using FLUX.1-schnell via HF Space. Call with: tools.generate_flux_image.(prompt)",
       inputs: %{
         "prompt" => %{type: "string", description: "Description of the image to generate"}
       },
@@ -221,7 +221,7 @@ defmodule CodeAgentMinimal.Tools.SmolAgentsTools do
   def visit_webpage do
     %CodeAgentMinimal.Tool{
       name: "visit_webpage",
-      description: "Visits a webpage at the given URL and returns its content as markdown. Call with: visit_webpage.(url)",
+      description: "Visits a webpage at the given URL and returns its content as markdown. Call with: tools.visit_webpage.(url)",
       inputs: %{
         "url" => %{type: "string", description: "The URL of the webpage to visit"}
       },

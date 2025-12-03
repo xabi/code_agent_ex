@@ -9,7 +9,7 @@ defmodule CodeAgentMinimal.Tools.WikipediaTools do
   def wikipedia_search do
     %CodeAgentMinimal.Tool{
       name: :wikipedia_search,
-      description: "Searches Wikipedia for page suggestions matching a query. Returns a list of matching page titles. Call with: wikipedia_search.(query) or wikipedia_search.(query, language, results)",
+      description: "Searches Wikipedia for page suggestions matching a query. Returns a list of matching page titles. Call with: tools.wikipedia_search.(query) or wikipedia_search.(query, language, results)",
       inputs: %{
         "query" => %{type: "string", description: "Search term to find on Wikipedia"}
       },
