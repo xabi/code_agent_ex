@@ -1,9 +1,9 @@
-defmodule CodeAgentMinimal.MixProject do
+defmodule CodeAgentEx.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :code_agent_minimal,
+      app: :code_agent_ex,
       version: "0.1.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
@@ -15,7 +15,7 @@ defmodule CodeAgentMinimal.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {CodeAgentMinimal.Application, []}
+      mod: {CodeAgentEx.Application, []}
     ]
   end
 

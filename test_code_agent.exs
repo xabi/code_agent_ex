@@ -4,8 +4,8 @@
 
 Application.ensure_all_started(:code_agent_minimal)
 
-alias CodeAgentMinimal.CodeAgent
-alias CodeAgentMinimal.Tool
+alias CodeAgentEx.CodeAgent
+alias CodeAgentEx.Tool
 
 IO.puts("🤖 Test CodeAgent Minimal - Suite de tests complète\n")
 
@@ -193,7 +193,7 @@ case CodeAgent.run(task7a, tools: [Tool.final_answer()], max_steps: 5) do
     case CodeAgent.run(task7b, tools: [Tool.final_answer()], state: state1, max_steps: 5) do
       {:ok, result2, state2} ->
         IO.puts("✅ Deuxième tâche: #{inspect(result2)}")
-        IO.puts("   Total steps dans la conversation: #{CodeAgentMinimal.Memory.count(state2.memory)}")
+        IO.puts("   Total steps dans la conversation: #{CodeAgentEx.Memory.count(state2.memory)}")
 
       {:error, reason, _} ->
         IO.puts("❌ Erreur dans la continuation: #{inspect(reason)}")

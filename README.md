@@ -1,8 +1,8 @@
-# CodeAgentMinimal 🤖
+# CodeAgentEx 🤖
 
 > A code-generating agent framework for Elixir, inspired by [smolagents](https://github.com/huggingface/smolagents)
 
-CodeAgentMinimal is a lightweight implementation of an agentic AI system that **writes and executes Elixir code** to solve tasks. Using a ReAct (Reasoning + Acting) loop, the agent iteratively generates code, executes it in a sandbox, and uses the results to progress toward a solution.
+CodeAgentEx is a lightweight implementation of an agentic AI system that **writes and executes Elixir code** to solve tasks. Using a ReAct (Reasoning + Acting) loop, the agent iteratively generates code, executes it in a sandbox, and uses the results to progress toward a solution.
 
 ## ✨ Features
 
@@ -33,7 +33,7 @@ CodeAgentMinimal is a lightweight implementation of an agentic AI system that **
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd code_agent_minimal
+cd code_agent_ex
 
 # Install dependencies
 mix deps.get
@@ -44,20 +44,20 @@ mix compile
 
 ### Configuration
 
-CodeAgentMinimal is a **library**, not an application. It does not impose configuration on your project.
+CodeAgentEx is a **library**, not an application. It does not impose configuration on your project.
 
 **Option 1: Pass API keys directly to functions**
 
 ```elixir
 # HuggingFace
-CodeAgentMinimal.HfChat.chat_completion(
+CodeAgentEx.HfChat.chat_completion(
   model,
   messages,
   api_key: "hf_your_token_here"
 )
 
 # Moondream
-{:ok, client} = CodeAgentMinimal.MoondreamApi.new("your_moondream_key")
+{:ok, client} = CodeAgentEx.MoondreamApi.new("your_moondream_key")
 ```
 
 **Option 2: Use environment variables in your project**
@@ -76,13 +76,13 @@ If you use tools that require Python (Wikipedia, Finance, SmolAgents, etc.), ini
 
 ```elixir
 # In your application.ex start/2 or at runtime
-CodeAgentMinimal.PythonEnv.init()
+CodeAgentEx.PythonEnv.init()
 ```
 
 Or use custom dependencies:
 
 ```elixir
-CodeAgentMinimal.PythonEnv.init_custom("""
+CodeAgentEx.PythonEnv.init_custom("""
 [project]
 name = "my_project"
 version = "0.1.0"
@@ -94,7 +94,7 @@ dependencies = [
 """)
 ```
 
-To see the default dependencies, check `CodeAgentMinimal.PythonEnv.default_config()`.
+To see the default dependencies, check `CodeAgentEx.PythonEnv.default_config()`.
 
 ### Basic Usage
 
@@ -103,7 +103,7 @@ To see the default dependencies, check `CodeAgentMinimal.PythonEnv.default_confi
 iex -S mix
 
 # Run a simple calculation
-alias CodeAgentMinimal.{CodeAgent, AgentConfig}
+alias CodeAgentEx.{CodeAgent, AgentConfig}
 
 config = AgentConfig.new(
   model: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
@@ -122,7 +122,7 @@ The project includes 13 comprehensive tests:
 
 ```elixir
 # In IEx
-alias CodeAgentMinimal.IexTest
+alias CodeAgentEx.IexTest
 
 # Run individual tests
 IexTest.test1()   # Simple arithmetic
@@ -155,7 +155,7 @@ CodeAgent.run(
 ### Example 2: Using Tools
 
 ```elixir
-alias CodeAgentMinimal.Tools.WikipediaTools
+alias CodeAgentEx.Tools.WikipediaTools
 
 config = AgentConfig.new(
   tools: [WikipediaTools.wikipedia_search()],
@@ -171,7 +171,7 @@ CodeAgent.run(
 ### Example 3: Managed Agents (Hierarchical)
 
 ```elixir
-alias CodeAgentMinimal.{AgentConfig, Tools.PythonTools, Tools.WikipediaTools}
+alias CodeAgentEx.{AgentConfig, Tools.PythonTools, Tools.WikipediaTools}
 
 # Create a specialized research agent
 researcher = AgentConfig.new(
@@ -208,7 +208,7 @@ CodeAgent.run(
 ### Example 4: Image Generation with FLUX
 
 ```elixir
-alias CodeAgentMinimal.Tools.SmolAgentsTools
+alias CodeAgentEx.Tools.SmolAgentsTools
 
 config = AgentConfig.new(
   tools: SmolAgentsTools.image_tools(),
@@ -225,7 +225,7 @@ CodeAgent.run(
 ### Example 5: Vision Analysis with Moondream
 
 ```elixir
-alias CodeAgentMinimal.Tools.MoondreamTools
+alias CodeAgentEx.Tools.MoondreamTools
 
 config = AgentConfig.new(
   tools: MoondreamTools.basic_tools(),
@@ -272,7 +272,7 @@ CodeAgent (main ReAct loop)
 Tools are simple structs with a function:
 
 ```elixir
-alias CodeAgentMinimal.Tool
+alias CodeAgentEx.Tool
 
 temperature_tool = %Tool{
   name: :get_temperature,
