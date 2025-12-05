@@ -19,6 +19,7 @@ defmodule CodeAgentMinimal.IexTest do
   """
   def test_all do
     IO.puts("\n🤖 CodeAgent - Suite de tests complète\n")
+    ensure_python_initialized()
 
     tests = [
       {"Test 1: Calcul arithmétique simple", &test1/0},
@@ -46,12 +47,11 @@ defmodule CodeAgentMinimal.IexTest do
         IO.puts(String.duplicate("=", 80))
 
         case test_fn.() do
-          {:ok, result, state} ->
+          {:ok, result} ->
             IO.puts("✅ Résultat: #{inspect(result)}")
-            IO.puts("   Steps: #{state.current_step}/#{state.config.max_steps}\n")
             :ok
 
-          {:error, reason, _state} ->
+          {:error, reason} ->
             IO.puts("❌ Erreur: #{inspect(reason)}\n")
             :error
         end
@@ -493,14 +493,13 @@ defmodule CodeAgentMinimal.IexTest do
     IO.puts("Tâche: #{task}\n")
 
     case CodeAgent.run(task, config) do
-      {:ok, result, state} ->
+      {:ok, result} ->
         IO.puts("\n✅ Résultat: #{inspect(result)}")
-        IO.puts("   Steps: #{state.current_step}/#{state.config.max_steps}")
-        {:ok, result, state}
+        {:ok, result}
 
-      {:error, reason, state} ->
+      {:error, reason} ->
         IO.puts("\n❌ Erreur: #{inspect(reason)}")
-        {:error, reason, state}
+        {:error, reason}
     end
   end
 
@@ -607,7 +606,7 @@ defmodule CodeAgentMinimal.IexTest do
 
     # Vérifier si le fichier a été créé
     case result do
-      {:ok, _result, _state} ->
+      {:ok, _result} ->
         if File.exists?("/tmp/code_agent/quadratic_equation.png") do
           file_info = File.stat!("/tmp/code_agent/quadratic_equation.png")
 
@@ -665,7 +664,7 @@ defmodule CodeAgentMinimal.IexTest do
 
     # Afficher le résultat et parser le JSON
     case result do
-      {:ok, final_result, _state} ->
+      {:ok, final_result} ->
         IO.puts("\n✅ Test terminé")
         IO.puts("Résultat brut: #{inspect(final_result)}")
 
@@ -745,7 +744,7 @@ defmodule CodeAgentMinimal.IexTest do
 
     # Afficher le résultat et parser le JSON
     case result do
-      {:ok, final_result, _state} ->
+      {:ok, final_result} ->
         IO.puts("\n✅ Test terminé")
         IO.puts("Résultat brut: #{inspect(final_result)}")
 
@@ -792,7 +791,6 @@ defmodule CodeAgentMinimal.IexTest do
   Test 17: Démonstration de continue_validation.
 
   Ce test montre comment utiliser le système de validation humaine (human-in-the-loop)
-  avec require_validation: true sur l'agent principal.
 
   NOTE: Seul l'agent principal peut être validé. Les managed agents s'exécutent
   sans validation.
@@ -818,7 +816,7 @@ defmodule CodeAgentMinimal.IexTest do
 
       # Approuver l'exécution
       iex> CodeAgent.continue_validation(state, :approve)
-      # => Continue et retourne {:ok, result, state} ou {:pending_validation, ...} si autre step
+      # => Continue et retourne {:ok, result} ou {:pending_validation, ...} si autre step
 
       # Ou modifier le code avant exécution
       iex> CodeAgent.continue_validation(state, {:modify, "result = 15 + 25"})
@@ -850,7 +848,6 @@ defmodule CodeAgentMinimal.IexTest do
     config =
       AgentConfig.new(
         tools: [PythonTools.python_interpreter()],
-        require_validation: true,
         max_steps: 5
       )
 
@@ -889,25 +886,23 @@ defmodule CodeAgentMinimal.IexTest do
 
         {:pending_validation, thought, code, state}
 
-      {:ok, final_result, state} ->
+      {:ok, final_result} ->
         IO.puts("""
 
         ✅ Test completed without requiring validation
         Result: #{final_result}
-        Steps: #{state.current_step}/#{state.config.max_steps}
         """)
 
-        {:ok, final_result, state}
+        {:ok, final_result}
 
-      {:error, reason, state} ->
+      {:error, reason} ->
         IO.puts("""
 
         ❌ Test failed
         Error: #{inspect(reason)}
-        Steps: #{state.current_step}/#{state.config.max_steps}
         """)
 
-        {:error, reason, state}
+        {:error, reason}
     end
   end
 
@@ -915,6 +910,550 @@ defmodule CodeAgentMinimal.IexTest do
   Test rapide - alias pour test_custom.
   """
   def run(task, opts \\ []), do: test_custom(task, opts)
+
+  @doc """
+  Test 18: Test GenServer-based managed agent with simple math task.
+
+  Tests the new GenServer architecture where managed agents run asynchronously
+  in supervised processes with message-based communication.
+  """
+  def test18 do
+    alias CodeAgentMinimal.{AgentConfig, Tool}
+
+    # Create a simple math agent that will run as a GenServer
+    math_agent =
+      AgentConfig.new(
+        name: :math_helper,
+        instructions: "You are a math helper. Calculate mathematical expressions accurately.",
+        tools: [Tool.final_answer()],
+        max_steps: 3
+      )
+
+    task = """
+    Use the math_helper agent to calculate: (15 * 8) + 42 - 7
+    Then add 100 to the result.
+    """
+
+    config =
+      AgentConfig.new(
+        name: :coordinator,
+        instructions: "You coordinate with managed agents to solve tasks.",
+        managed_agents: [math_agent],
+        max_steps: 5
+      )
+
+    IO.puts("\n=== Test 18: GenServer Managed Agent ===\n")
+    IO.puts("Task: #{task}\n")
+
+    case CodeAgent.run(task, config) do
+      {:ok, result, _state} ->
+        IO.puts("\n✅ Success!")
+        IO.puts("Result: #{result}\n")
+        :ok
+
+      {:error, reason} ->
+        IO.puts("\n❌ Error: #{inspect(reason)}\n")
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Test 19: Sub-agent validation with human-in-the-loop.
+
+  Tests that validation requests from sub-agents are properly propagated
+  to the parent agent and can be approved/rejected by the user.
+  """
+  def test19 do
+    alias CodeAgentMinimal.{AgentConfig, Tool}
+
+    # Create a math agent that requires validation
+    math_agent =
+      AgentConfig.new(
+        name: :math_calculator,
+        instructions: "You are a math calculator. Perform calculations accurately.",
+        tools: [Tool.final_answer()],
+        max_steps: 3
+      )
+
+    task = """
+    Use the math_calculator agent to calculate: 25 * 4 + 15
+    """
+
+    config =
+      AgentConfig.new(
+        name: :coordinator,
+        instructions: "You coordinate with managed agents to solve tasks.",
+        managed_agents: [math_agent],
+        max_steps: 5
+      )
+
+    IO.puts("\n=== Test 19: Sub-Agent Validation ===\n")
+    IO.puts("Task: #{task}\n")
+    IO.puts("Both the main agent and the math sub-agent require validation.\n")
+
+    # Start the agent
+    {:ok, agent_pid} = CodeAgentMinimal.AgentSupervisor.start_agent(config, self())
+    CodeAgentMinimal.AgentServer.run(agent_pid, task)
+
+    # Handle validation loop
+    handle_validation_loop(agent_pid)
+  end
+
+  # Helper function to handle validation messages
+  defp handle_validation_loop(agent_pid) do
+    receive do
+      {:agent_started, ^agent_pid, _name} ->
+        IO.puts("Agent started, waiting for validation requests...\n")
+        handle_validation_loop(agent_pid)
+
+      {:pending_validation, ^agent_pid, thought, code} ->
+        IO.puts("\n🔍 VALIDATION REQUIRED:")
+        IO.puts("Thought: #{String.slice(thought, 0, 200)}...")
+        IO.puts("\nCode to execute:")
+        IO.puts("```elixir")
+        IO.puts(code)
+        IO.puts("```\n")
+
+        # Auto-approve for this test
+        IO.puts("✅ Auto-approving...\n")
+        CodeAgentMinimal.AgentServer.continue(agent_pid, :approve)
+        handle_validation_loop(agent_pid)
+
+      {:final_result, ^agent_pid, result} ->
+        IO.puts("\n✅ Final Result:")
+        IO.puts(result)
+        IO.puts("\n")
+        CodeAgentMinimal.AgentServer.stop(agent_pid)
+        :ok
+
+      {:error, ^agent_pid, reason} ->
+        IO.puts("\n❌ Error: #{inspect(reason)}\n")
+        CodeAgentMinimal.AgentServer.stop(agent_pid)
+        {:error, reason}
+
+      {:rejected, ^agent_pid} ->
+        IO.puts("\n🛑 Execution was rejected\n")
+        CodeAgentMinimal.AgentServer.stop(agent_pid)
+        :rejected
+    after
+      60_000 ->
+        IO.puts("\n⏰ Timeout waiting for agent\n")
+        CodeAgentMinimal.AgentServer.stop(agent_pid)
+        {:error, :timeout}
+    end
+  end
+
+  @doc """
+  Test 20: AgentOrchestrator - centralized validation management.
+
+  Tests the new orchestrator that centralizes all agent communications
+  and validation requests in a single GenServer.
+  """
+  def test20 do
+    alias CodeAgentMinimal.{AgentConfig, AgentOrchestrator, Tool}
+
+    # Create a math sub-agent that requires validation
+    math_agent =
+      AgentConfig.new(
+        name: :math_calculator,
+        instructions: "You are a math calculator. Perform calculations accurately.",
+        tools: [Tool.final_answer()],
+        max_steps: 3
+      )
+
+    task = """
+    Use the math_calculator agent to calculate: (25 * 4) + 15
+    Then multiply the result by 2.
+    """
+
+    config =
+      AgentConfig.new(
+        name: :coordinator,
+        instructions: "You coordinate with managed agents to solve tasks.",
+        managed_agents: [math_agent],
+        max_steps: 5
+      )
+
+    IO.puts("\n=== Test 20: AgentOrchestrator ===\n")
+    IO.puts("Task: #{task}\n")
+    IO.puts("Using centralized orchestrator with auto-approve.\n")
+
+    # Ensure application is started
+    case Application.ensure_all_started(:code_agent_minimal) do
+      {:ok, _} -> :ok
+      {:error, _} -> IO.puts("Warning: Application may not be fully started")
+    end
+
+    # Start orchestrator (auto-approve by default)
+    {:ok, orchestrator_pid} = AgentOrchestrator.start_link(config)
+
+    # Run task synchronously
+    case AgentOrchestrator.run_task(orchestrator_pid, task) do
+      {:ok, result} ->
+        IO.puts("\n✅ Final Result:")
+        IO.puts(result)
+        IO.puts("\n")
+        AgentOrchestrator.stop(orchestrator_pid)
+        :ok
+
+      {:error, reason} ->
+        IO.puts("\n❌ Error: #{inspect(reason)}\n")
+        AgentOrchestrator.stop(orchestrator_pid)
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Test 21: Reusable orchestrator with multiple tasks (context preservation).
+
+  Shows how to use a single orchestrator for multiple related tasks,
+  maintaining context and memory between executions.
+  """
+  def test21 do
+    alias CodeAgentMinimal.{AgentConfig, AgentOrchestrator, Tool}
+
+    config =
+      AgentConfig.new(
+        name: :calculator,
+        instructions: "You are a calculator. Remember previous calculations.",
+        tools: [Tool.final_answer()],
+        max_steps: 3
+      )
+
+    IO.puts("\n=== Test 21: Reusable Orchestrator (Multi-task) ===\n")
+
+    # Start orchestrator once
+    {:ok, orch} = AgentOrchestrator.start_link(config)
+    IO.puts("Orchestrator started\n")
+
+    # Task 1
+    IO.puts("Task 1: Calculate 10 + 5")
+
+    case AgentOrchestrator.run_task(orch, "Calculate 10 + 5") do
+      {:ok, result1} ->
+        IO.puts("✅ Task 1 result: #{result1}\n")
+
+        # Task 2: uses context from Task 1
+        IO.puts("Task 2: Multiply that by 3 (should use result from Task 1)")
+
+        case AgentOrchestrator.run_task(orch, "Multiply that by 3") do
+          {:ok, result2} ->
+            IO.puts("✅ Task 2 result: #{result2}\n")
+
+            # Task 3: uses context from previous tasks
+            IO.puts("Task 3: Add 7 to the result")
+
+            case AgentOrchestrator.run_task(orch, "Add 7 to the result") do
+              {:ok, result3} ->
+                IO.puts("✅ Task 3 result: #{result3}\n")
+
+                IO.puts("""
+                Summary:
+                - Task 1: 10 + 5 = 15
+                - Task 2: 15 * 3 = 45 (remembered 15)
+                - Task 3: 45 + 7 = 52 (remembered 45)
+                """)
+
+                AgentOrchestrator.stop(orch)
+                :ok
+
+              {:error, reason} ->
+                IO.puts("❌ Task 3 failed: #{inspect(reason)}")
+                AgentOrchestrator.stop(orch)
+                {:error, reason}
+            end
+
+          {:error, reason} ->
+            IO.puts("❌ Task 2 failed: #{inspect(reason)}")
+            AgentOrchestrator.stop(orch)
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        IO.puts("❌ Task 1 failed: #{inspect(reason)}")
+        AgentOrchestrator.stop(orch)
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Test 22: Custom validation handler with logging.
+
+  Shows how to use a custom validation_handler function to inspect
+  and control code execution with custom logic.
+  """
+  def test22 do
+    alias CodeAgentMinimal.{AgentConfig, AgentOrchestrator, AgentServer, Tool}
+
+    config =
+      AgentConfig.new(
+        name: :calculator,
+        instructions: "Calculate math problems step by step.",
+        tools: [Tool.final_answer()],
+        max_steps: 5
+      )
+
+    IO.puts("\n=== Test 22: Custom Validation Handler ===\n")
+
+    # Create a custom validation handler that logs everything
+    validation_count = :counters.new(1, [])
+
+    validation_handler = fn %{agent_pid: pid, agent_name: name, thought: thought, code: code} ->
+      count = :counters.add(validation_count, 1, 1)
+
+      IO.puts("""
+
+      🔍 Validation Request ##{count} from '#{name}'
+      Thought: #{String.slice(thought, 0, 80)}...
+      Code:
+      #{String.split(code, "\n") |> Enum.map(&("  " <> &1)) |> Enum.join("\n")}
+
+      ✅ Auto-approving...
+      """)
+
+      # Auto-approve after logging
+      AgentServer.continue(pid, :approve)
+    end
+
+    # Start orchestrator with custom handler
+    {:ok, orch} = AgentOrchestrator.start_link(config, validation_handler: validation_handler)
+
+    IO.puts("Running task with custom validation handler...\n")
+
+    case AgentOrchestrator.run_task(orch, "Calculate (15 * 3) + 20") do
+      {:ok, result} ->
+        total_validations = :counters.get(validation_count, 1)
+
+        IO.puts("""
+
+        ✅ Final Result: #{result}
+        Total validations intercepted: #{total_validations}
+        """)
+
+        AgentOrchestrator.stop(orch)
+        :ok
+
+      {:error, reason} ->
+        IO.puts("\n❌ Error: #{inspect(reason)}\n")
+        AgentOrchestrator.stop(orch)
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Test 23: Interactive user validation (human-in-the-loop).
+
+  This test demonstrates interactive validation where the user must
+  approve, reject, or modify each piece of code before execution.
+
+  Run this test in iex for interactive validation.
+  """
+  def test23 do
+    alias CodeAgentMinimal.{AgentConfig, AgentOrchestrator, AgentServer, Tool}
+
+    config =
+      AgentConfig.new(
+        name: :calculator,
+        instructions: "Calculate math problems step by step.",
+        tools: [Tool.final_answer()],
+        max_steps: 5
+      )
+
+    IO.puts("\n=== Test 23: Interactive User Validation ===\n")
+
+    # Create an interactive validation handler
+    validation_handler = fn %{agent_pid: pid, agent_name: name, thought: thought, code: code} ->
+      IO.puts("""
+
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      🔍 VALIDATION REQUIRED from '#{name}'
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+      💭 Agent's reasoning:
+      #{thought}
+
+      📝 Code to execute:
+      #{String.split(code, "\n") |> Enum.map(&("    " <> &1)) |> Enum.join("\n")}
+
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      """)
+
+      decision =
+        case IO.gets("Decision? [a]pprove / [r]eject / [m]odify / [f]eedback: ")
+             |> String.trim() do
+          "a" ->
+            :approve
+
+          "r" ->
+            :reject
+
+          "m" ->
+            IO.puts("\nEnter modified code (end with empty line):")
+            modified_code = read_multiline_input()
+            {:modify, modified_code}
+
+          "f" ->
+            feedback = IO.gets("Enter feedback message: ") |> String.trim()
+            {:feedback, feedback}
+
+          _ ->
+            IO.puts("Invalid choice, defaulting to approve")
+            :approve
+        end
+
+      AgentServer.continue(pid, decision)
+    end
+
+    # Start orchestrator with interactive handler
+    {:ok, orch} = AgentOrchestrator.start_link(config, validation_handler: validation_handler)
+
+    IO.puts("Running task with interactive validation...\n")
+    IO.puts("Task: Calculate (20 + 5) * 2\n")
+
+    case AgentOrchestrator.run_task(orch, "Calculate (20 + 5) * 2") do
+      {:ok, result} ->
+        IO.puts("""
+
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        ✅ FINAL RESULT: #{result}
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        """)
+
+        AgentOrchestrator.stop(orch)
+        :ok
+
+      {:error, reason} ->
+        IO.puts("\n❌ Error: #{inspect(reason)}\n")
+        AgentOrchestrator.stop(orch)
+        {:error, reason}
+    end
+  end
+
+  # Helper to read multiline input
+  defp read_multiline_input(acc \\ []) do
+    case IO.gets("") |> String.trim() do
+      "" ->
+        acc |> Enum.reverse() |> Enum.join("\n")
+
+      line ->
+        read_multiline_input([line | acc])
+    end
+  end
+
+  @doc """
+  Test 24: AI-powered validation with sub-agents
+
+  Demonstrates:
+  - Complex task requiring sub-agents
+  - AI validator using Instructor.Lite to analyze code
+  - Automated safety and correctness checking
+
+  Requirements:
+  - HF_TOKEN environment variable must be set
+
+  The AI validator analyzes each code execution for:
+  1. Safety (no destructive operations)
+  2. Correctness (matches agent's intention)
+  3. Quality (clean, readable code)
+
+  Example:
+      iex> IexTest.test24()
+  """
+  def test24 do
+    IO.puts("\n=== Test 24: AI-powered validation with sub-agents ===\n")
+
+    # Check for API key
+    api_key = System.get_env("HF_TOKEN")
+
+    if !api_key do
+      IO.puts("❌ HF_TOKEN environment variable not set!")
+      IO.puts("   Export your HuggingFace token to use AI validation.\n")
+      {:error, :missing_api_key}
+    else
+      run_test24(api_key)
+    end
+  end
+
+  defp run_test24(api_key) do
+    # Create AI validation handler (verbose mode to see decisions)
+    # Uses default model: Qwen/Qwen3-Coder-30B-A3B-Instruct
+    validation_handler =
+      CodeAgentMinimal.AIValidator.create_handler(
+        verbose: true,
+        auto_approve_threshold: 70,
+        api_key: api_key
+      )
+
+    # Create a calculator managed agent for sub-tasks
+    calculator_agent =
+      AgentConfig.new(
+        name: :calculator,
+        instructions: """
+        You are a calculator that performs mathematical operations.
+        Execute calculations and return numeric results.
+        """,
+        tools: [],
+        max_steps: 3
+      )
+
+    # Create main agent that coordinates sub-tasks
+    config =
+      AgentConfig.new(
+        name: "coordinator",
+        instructions: """
+        You coordinate complex calculations by delegating to the calculator agent.
+        Break down complex math problems into steps and use the calculator for each step.
+        """,
+        tools: [],
+        managed_agents: [calculator_agent],
+        max_steps: 10
+      )
+
+    IO.puts("Task: Calculate the average of (15 * 3), (20 + 8), and (50 / 2)")
+    IO.puts("\nThe main agent will delegate calculations to the calculator sub-agent.")
+    IO.puts("AI will validate each code execution for safety and correctness.\n")
+
+    # Start orchestrator with AI validation
+    {:ok, orch} =
+      CodeAgentMinimal.AgentOrchestrator.start_link(config,
+        validation_handler: validation_handler
+      )
+
+    task = """
+    Calculate the average of these three values:
+    1. 15 * 3
+    2. 20 + 8
+    3. 50 / 2
+
+    Use the calculator agent for each calculation, then compute the average.
+    """
+
+    case CodeAgentMinimal.AgentOrchestrator.run_task(orch, task) do
+      {:ok, result} ->
+        IO.puts("""
+
+        ═══════════════════════════════════════════════════════════════════
+        ✅ Final Result: #{result}
+        ═══════════════════════════════════════════════════════════════════
+
+        Expected: (45 + 28 + 25) / 3 = 98 / 3 ≈ 32.67
+
+        The AI validator analyzed all code executions from both:
+        - Main coordinator agent
+        - Calculator sub-agent
+
+        Each validation checked for safety, correctness, and quality!
+        """)
+
+        CodeAgentMinimal.AgentOrchestrator.stop(orch)
+        {:ok, result}
+
+      {:error, reason} ->
+        IO.puts("\n❌ Error: #{inspect(reason)}\n")
+        CodeAgentMinimal.AgentOrchestrator.stop(orch)
+        {:error, reason}
+    end
+  end
 
   @doc """
   Affiche les fonctions disponibles.
@@ -943,6 +1482,13 @@ defmodule CodeAgentMinimal.IexTest do
     - test15()  - Génération d'image avec HF Inference API
     - test16()  - Génération de vidéo avec HF Inference API
     - test17()  - Validation humaine (Human-in-the-loop) sur agent principal
+    - test18()  - GenServer-based managed agent (async communication)
+    - test19()  - Sub-agent validation (validation propagation from sub-agents)
+    - test20()  - AgentOrchestrator (centralized validation management)
+    - test21()  - Reusable orchestrator with multiple tasks (context preservation)
+    - test22()  - Custom validation handler with logging
+    - test23()  - Interactive user validation (human-in-the-loop) ⚠️  INTERACTIVE
+    - test24()  - AI-powered validation with sub-agents using Instructor.Lite
 
     ## Tests globaux
     - test_all()  - Lance tous les tests
@@ -963,5 +1509,11 @@ defmodule CodeAgentMinimal.IexTest do
         iex> IexTest.run("Calculate 5 * 5")
         iex> IexTest.test_custom("Sum [1,2,3]", max_steps: 3)
     """)
+  end
+
+  # Helpers privés
+
+  defp ensure_python_initialized do
+    CodeAgentMinimal.PythonEnv.init()
   end
 end

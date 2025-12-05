@@ -44,18 +44,57 @@ mix compile
 
 ### Configuration
 
-Set your API keys as environment variables:
+CodeAgentMinimal is a **library**, not an application. It does not impose configuration on your project.
+
+**Option 1: Pass API keys directly to functions**
+
+```elixir
+# HuggingFace
+CodeAgentMinimal.HfChat.chat_completion(
+  model,
+  messages,
+  api_key: "hf_your_token_here"
+)
+
+# Moondream
+{:ok, client} = CodeAgentMinimal.MoondreamApi.new("your_moondream_key")
+```
+
+**Option 2: Use environment variables in your project**
 
 ```bash
-# For HuggingFace models (default)
+# Set environment variables
 export HF_TOKEN=hf_your_token_here
-
-# For OpenAI (optional)
-export OPENAI_API_KEY=sk-your_token_here
-
-# For Moondream vision tools (optional)
 export MOONDREAM_API_KEY=your_token_here
 ```
+
+Most functions accept an `api_key` option, so you can manage credentials however you prefer.
+
+**Python Dependencies (for Python-based tools)**
+
+If you use tools that require Python (Wikipedia, Finance, SmolAgents, etc.), initialize PythonX in your application:
+
+```elixir
+# In your application.ex start/2 or at runtime
+CodeAgentMinimal.PythonEnv.init()
+```
+
+Or use custom dependencies:
+
+```elixir
+CodeAgentMinimal.PythonEnv.init_custom("""
+[project]
+name = "my_project"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "wikipedia==1.4.0",
+  "my_custom_package>=1.0.0"
+]
+""")
+```
+
+To see the default dependencies, check `CodeAgentMinimal.PythonEnv.default_config()`.
 
 ### Basic Usage
 

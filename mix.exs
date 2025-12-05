@@ -31,7 +31,10 @@ defmodule CodeAgentMinimal.MixProject do
       {:mini_elixir, github: "sequinstream/mini_elixir"},
 
       # Python integration
-      {:pythonx, "~> 0.4"}
+      {:pythonx, "~> 0.4"},
+
+      # AI-powered validation
+      {:instructor_lite, "~> 1.1.2"}
     ]
   end
 end

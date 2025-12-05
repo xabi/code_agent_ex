@@ -9,7 +9,9 @@ defmodule CodeAgentMinimal.Application do
   def start(_type, _args) do
     children = [
       # HTTP client pool pour les requêtes API (Moondream, etc.)
-      {Finch, name: CodeAgentMinimal.Finch}
+      {Finch, name: CodeAgentMinimal.Finch},
+      # DynamicSupervisor for managing agent processes
+      CodeAgentMinimal.AgentSupervisor
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

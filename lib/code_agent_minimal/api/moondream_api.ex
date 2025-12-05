@@ -76,7 +76,6 @@ defmodule CodeAgentMinimal.MoondreamApi do
 
   def new(api_key \\ nil) do
     Logger.debug("[MoondreamApi] 🔑 Initialisation du client Moondream")
-    api_key = api_key || Application.get_env(:code_agent_minimal, :moondream)[:api_key]
 
     if is_nil(api_key) or api_key == "" do
       Logger.error("[MoondreamApi] ❌ Clé API Moondream manquante")

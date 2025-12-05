@@ -1,34 +1,34 @@
 defmodule CodeAgentMinimal.AgentConfig do
   @moduledoc """
-  Configuration pour créer des agents qui peuvent être utilisés comme managed agents.
+  Configuration for creating agents that can be used as managed agents.
 
-  Un AgentConfig définit la configuration d'un agent : nom, description, outils,
-  sous-agents, etc. Cette configuration peut ensuite être utilisée comme managed agent
-  dans un CodeAgent principal.
+  An AgentConfig defines agent configuration: name, description, tools,
+  sub-agents, etc. This configuration can then be used as a managed agent
+  in a main CodeAgent.
 
-  ## Exemple simple
+  ## Simple Example
 
-      # Créer une configuration d'agent web spécialisé
+      # Create a specialized web research agent configuration
       web_agent = AgentConfig.new(
         name: "web_researcher",
         instructions: "You are a specialized web research agent. Search for accurate information using Wikipedia tools.",
         tools: [WikipediaTools.all_tools()]
       )
 
-      # L'utiliser comme managed agent dans un agent principal
+      # Use it as a managed agent in a main agent
       CodeAgent.run(task,
         tools: [Tool.final_answer()],
         managed_agents: [web_agent]
       )
 
-      # L'agent principal peut alors appeler:
-      # result = agents.web_researcher.("recherche les dernières news sur Elixir")
+      # The main agent can then call:
+      # result = agents.web_researcher.("search for latest Elixir news")
 
-  ## Agents imbriqués (nested agents)
+  ## Nested Agents
 
-  Un AgentConfig peut lui-même avoir des managed_agents, créant une hiérarchie:
+  An AgentConfig can itself have managed_agents, creating a hierarchy:
 
-      # Niveau 2: Configuration agent Python
+      # Level 2: Python agent configuration
       python_agent = AgentConfig.new(
         name: :python_executor,
         instructions: "You are a Python code executor. Execute Python code safely and return results.",
@@ -36,7 +36,7 @@ defmodule CodeAgentMinimal.AgentConfig do
         max_steps: 3
       )
 
-      # Niveau 1: Configuration agent math qui utilise Python
+      # Level 1: Math agent configuration that uses Python
       math_agent = AgentConfig.new(
         name: :math_specialist,
         instructions: "You are a mathematical specialist. Solve complex math problems. You can delegate to Python for calculations.",
@@ -45,18 +45,18 @@ defmodule CodeAgentMinimal.AgentConfig do
         max_steps: 5
       )
 
-      # Agent principal
+      # Main agent
       CodeAgent.run(
         "Calculate factorial of 10 using math_specialist",
         managed_agents: [math_agent],
         max_steps: 6
       )
 
-  Dans cet exemple, l'agent principal peut appeler math_specialist, qui peut
-  lui-même appeler python_executor pour des calculs complexes.
+  In this example, the main agent can call math_specialist, which can
+  itself call python_executor for complex calculations.
   """
 
-  alias CodeAgentMinimal.CodeAgent
+  alias CodeAgentMinimal.{AgentSupervisor, AgentServer, AgentOrchestrator}
 
   # Qwen/Qwen3-30B-A3B-Thinking-2507 (invente des données au lieu d'utiliser les tools)
   # meta-llama/Llama-4-Scout-17B-16E-Instruct (plus disponible)
@@ -78,40 +78,38 @@ defmodule CodeAgentMinimal.AgentConfig do
     managed_agents: [],
     listener_pid: nil,
     llm_opts: @default_llm_opts,
-    require_validation: false,
     backend: :hf,
     model: @default_model,
     max_steps: @default_max_steps
   ]
 
   @doc """
-  Crée une nouvelle configuration d'agent.
+  Creates a new agent configuration.
 
   ## Options
 
-  - `:name` - Nom de l'agent (défaut: :agent)
-  - `:instructions` - Instructions décrivant le rôle et comportement de l'agent (optionnel)
-  - `:tools` - Liste des tools disponibles pour cet agent (défaut: [])
-  - `:managed_agents` - Liste des sous-agents que cet agent peut utiliser (défaut: [])
-  - `:model` - Modèle LLM à utiliser (optionnel)
-  - `:max_steps` - Nombre max d'itérations (optionnel)
-  - `:listener_pid` - PID pour les notifications de progression (optionnel)
-  - `:llm_opts` - Options additionnelles pour l'API LLM (défaut: [])
-  - `:require_validation` - Requiert validation utilisateur (défaut: false)
-  - `:backend` - Backend LLM à utiliser: :hf ou :mistral (défaut: :hf)
-  - `:response_format` - Format de réponse structuré pour le LLM (optionnel)
-    Peut être une map avec `type: "json_object"` et optionnellement `schema: {...}`
-    Exemple: `%{type: "json_object", schema: %{type: "object", properties: %{...}}}`
+  - `:name` - Agent name (default: :agent)
+  - `:instructions` - Instructions describing the agent's role and behavior (optional)
+  - `:tools` - List of tools available for this agent (default: [])
+  - `:managed_agents` - List of sub-agents this agent can use (default: [])
+  - `:model` - LLM model to use (optional)
+  - `:max_steps` - Maximum number of iterations (optional)
+  - `:listener_pid` - Orchestrator PID (required for managed agents, automatically provided)
+  - `:llm_opts` - Additional options for the LLM API (default: [])
+  - `:backend` - LLM backend to use: :hf or :mistral (default: :hf)
+  - `:response_format` - Structured response format for the LLM (optional)
+    Can be a map with `type: "json_object"` and optionally `schema: {...}`
+    Example: `%{type: "json_object", schema: %{type: "object", properties: %{...}}}`
   """
   def new(opts \\ []) do
     struct!(__MODULE__, opts)
   end
 
   @doc """
-  Convertit une configuration d'agent en tool appelable.
+  Converts an agent configuration into a callable tool.
 
-  Le tool créé prend une `task` en paramètre et lance le sous-agent.
-  Accepte un `listener_pid` optionnel pour la progression.
+  The created tool takes a `task` parameter and launches the sub-agent.
+  Accepts an orchestrator `listener_pid` (required).
   """
   def to_tool(%__MODULE__{} = agent_config, listener_pid \\ nil) do
     %CodeAgentMinimal.Tool{
@@ -129,69 +127,45 @@ defmodule CodeAgentMinimal.AgentConfig do
   end
 
   @doc """
-  Convertit une liste de configurations d'agents en tools.
-  Accepte un `listener_pid` optionnel pour la progression.
+  Converts a list of agent configurations into tools.
+  Accepts an orchestrator `listener_pid` (required).
   """
   def to_tools(agent_configs, listener_pid \\ nil) do
     Enum.map(agent_configs, &to_tool(&1, listener_pid))
   end
 
-  # Crée la fonction qui sera appelée quand le tool est invoqué
+  # Creates the function that will be called when the tool is invoked
+  # Now uses GenServer-based architecture for async communication
   defp create_agent_function(%__MODULE__{} = agent_config, listener_pid) do
     fn task ->
       task = normalize_arg(task)
 
-      # Notifier le début de l'exécution du sous-agent
-      if listener_pid do
-        send(
-          listener_pid,
-          {:agent_progress,
-           %{
-             type: :sub_agent_start,
-             agent_name: agent_config.name,
-             task: task
-           }}
-        )
+      # Start the agent as a supervised GenServer
+      # IMPORTANT: listener_pid is ALWAYS the orchestrator now
+      orchestrator_pid = listener_pid
+
+      case AgentSupervisor.start_agent(agent_config, orchestrator_pid) do
+        {:ok, agent_pid} ->
+          # Run the task asynchronously
+          AgentServer.run(agent_pid, task)
+
+          # Wait for orchestrator to send us the final result
+          wait_for_orchestrator_result(agent_pid, agent_config.name, orchestrator_pid)
+
+        {:error, reason} ->
+          "Agent '#{agent_config.name}' failed to start: #{inspect(reason)}"
       end
-
-      # Exécuter le sous-agent directement (pas de validation des sous-agents)
-      result =
-        case CodeAgent.run(task, agent_config) do
-          {:ok, result, _state} ->
-            wrap_result(agent_config.name, result)
-
-          {:error, reason, _state} ->
-            "Agent '#{agent_config.name}' error: #{inspect(reason)}"
-        end
-
-      # Notifier la fin de l'exécution du sous-agent
-      if listener_pid do
-        send(
-          listener_pid,
-          {:agent_progress,
-           %{
-             type: :sub_agent_end,
-             agent_name: agent_config.name
-           }}
-        )
-      end
-
-      result
     end
   end
 
-  # Wrap le résultat pour le parent agent
-  defp wrap_result(agent_name, result) do
-    """
-    === Report from agent '#{agent_name}' ===
-
-    #{result}
-
-    === End of report ===
-    """
+  # Waits for sub-agent result from orchestrator using GenServer.call
+  defp wait_for_orchestrator_result(agent_pid, agent_name, orchestrator_pid) do
+    # Use GenServer.call to register and wait for sub-agent result
+    # This is cleaner than send/receive as it handles timeouts and errors automatically
+    AgentOrchestrator.track_sub_agent(orchestrator_pid, agent_pid, agent_name)
   end
 
-  # Normalise les charlists en binaries
+  # Normalize charlists to binaries
   defp normalize_arg(arg) when is_list(arg), do: List.to_string(arg)
   defp normalize_arg(arg), do: arg
 end

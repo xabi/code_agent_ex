@@ -26,7 +26,7 @@ defmodule CodeAgentMinimal.CodeAgent do
   - `final_answer/1` termine l'exécution
   """
 
-  alias CodeAgentMinimal.{Executor, Memory, Prompts, Tool, AgentConfig}
+  alias CodeAgentMinimal.{Executor, Memory, Prompts, Tool, AgentConfig, AgentOrchestrator}
   alias CodeAgentMinimal.OpenaiChat
   require Logger
 
@@ -50,11 +50,15 @@ defmodule CodeAgentMinimal.CodeAgent do
   @doc """
   Exécute une tâche en générant et exécutant du code Elixir.
 
+  IMPORTANT: Cette fonction est maintenant un wrapper qui utilise toujours
+  un AgentOrchestrator en arrière-plan pour gérer la validation.
+
   ## Arguments
 
   - `task` - La tâche à accomplir (string)
   - `config` - Configuration de l'agent (%AgentConfig{})
-  - `previous_state` - État précédent pour continuer une conversation (optionnel)
+  - `opts` - Options (keyword list)
+    - `:validation_handler` - Custom validation handler function (optional)
 
   ## Exemple
 
@@ -65,17 +69,45 @@ defmodule CodeAgentMinimal.CodeAgent do
         max_steps: 10
       )
 
-      {:ok, result, state} = CodeAgent.run("Calculate 10 + 5", config)
+      # Default: auto-approve all validations
+      {:ok, result} = CodeAgent.run("Calculate 10 + 5", config)
 
-  ## Continuer une conversation
+      # Custom validation handler
+      handler = fn %{code: code, agent_pid: pid} ->
+        IO.puts("Validating: \#{code}")
+        AgentServer.continue(pid, :approve)
+      end
+      {:ok, result} = CodeAgent.run("Calculate 10 + 5", config, validation_handler: handler)
 
-      # Premier run
-      {:ok, result, state} = CodeAgent.run(task, config)
+  ## Validation
 
-      # Continuer avec le contexte précédent (mémoire préservée)
-      {:ok, result2, state2} = CodeAgent.run(new_task, config, state)
+  Auto-approves all validations by default. For custom validation logic,
+  pass a `:validation_handler` function or use `AgentOrchestrator.start_link/2`
+  directly for more control.
   """
-  def run(task, %AgentConfig{} = config, previous_state \\ nil) do
+  def run(task, %AgentConfig{} = config, opts \\ []) do
+    # Utiliser l'orchestrator pour toutes les exécutions
+    run_with_orchestrator(task, config, opts)
+  end
+
+  # Internal version that always uses orchestrator
+  defp run_with_orchestrator(task, config, opts) do
+    # Get validation_handler from opts (defaults to auto-approve in orchestrator)
+    orchestrator_opts = Keyword.take(opts, [:validation_handler])
+
+    # Start orchestrator with validation_handler option (no task required)
+    {:ok, orch_pid} = AgentOrchestrator.start_link(config, orchestrator_opts)
+
+    # Run task synchronously using GenServer.call
+    result = AgentOrchestrator.run_task(orch_pid, task)
+
+    # Stop orchestrator
+    AgentOrchestrator.stop(orch_pid)
+
+    result
+  end
+
+  def run_direct(task, %AgentConfig{} = config, previous_state \\ nil) do
     # Créer ou réutiliser le state
     state =
       if previous_state do
@@ -134,13 +166,6 @@ defmodule CodeAgentMinimal.CodeAgent do
     step = state.current_step + 1
     Logger.info("🔄 [CodeAgent] Step #{step}/#{state.config.max_steps}")
 
-    # Notifier le début du step
-    notify_progress(state.config.listener_pid, %{
-      type: :step_start,
-      step: step,
-      max_steps: state.config.max_steps
-    })
-
     # Construire les messages pour le LLM
     messages = build_messages(state)
 
@@ -184,23 +209,9 @@ defmodule CodeAgentMinimal.CodeAgent do
             Logger.info("💭 [CodeAgent] Thought: #{String.slice(thought, 0, 100)}...")
             Logger.debug("📝 [CodeAgent] Code:\n#{code}")
 
-            # Notifier le thought
-            notify_progress(state.config.listener_pid, %{
-              type: :thought,
-              step: step,
-              thought: thought,
-              code: code
-            })
-
-            # Si validation requise, retourner pour attendre l'approbation
-            # Sauf si c'est juste un final_answer
-            skip_validation = is_final_answer_only?(code)
-
-            if state.config.require_validation and not skip_validation do
-              {:pending_validation, thought, code, %{state | current_step: step}}
-            else
-              execute_code(code, thought, step, state)
-            end
+            # Always send validation request to orchestrator
+            # Orchestrator decides whether to auto-approve or ask user
+            {:pending_validation, thought, code, %{state | current_step: step}}
 
           {:final_text, answer} ->
             # Le LLM a répondu directement sans code
@@ -230,21 +241,20 @@ defmodule CodeAgentMinimal.CodeAgent do
     end
   end
 
-  # Exécute le code et continue la boucle
+  # Execute code and continue the loop
   defp execute_code(code, thought, step, state) do
-    # Exécuter en mode sandbox
+    # Execute in sandbox mode
     exec_result = Executor.execute_sandboxed(code, state.binding)
 
+    # Process the execution result
+    process_execution_result(exec_result, code, thought, step, state)
+  end
+
+  # Process the execution result (extracted for clarity)
+  defp process_execution_result(exec_result, code, thought, step, state) do
     case exec_result do
       {:ok, result, new_binding} ->
         Logger.info("✅ [CodeAgent] Code executed successfully")
-
-        # Notifier le résultat
-        notify_progress(state.config.listener_pid, %{
-          type: :result,
-          step: step,
-          result: result
-        })
 
         # Vérifier si c'est une réponse finale
         case check_final_answer(result, new_binding) do
@@ -305,7 +315,7 @@ defmodule CodeAgentMinimal.CodeAgent do
   end
 
   @doc """
-  Continue l'exécution après validation utilisateur.
+  Continue execution after user validation.
 
   ## Décisions possibles
 
@@ -390,7 +400,8 @@ defmodule CodeAgentMinimal.CodeAgent do
         {:final_text, Jason.encode!(json_response)}
 
       {:error, parse_error} ->
-        {:error, "Failed to parse JSON response: #{inspect(parse_error)}\nResponse: #{String.slice(response, 0, 200)}"}
+        {:error,
+         "Failed to parse JSON response: #{inspect(parse_error)}\nResponse: #{String.slice(response, 0, 200)}"}
     end
   end
 
@@ -442,7 +453,7 @@ defmodule CodeAgentMinimal.CodeAgent do
     end
   end
 
-  # S'assure que final_answer est dans les tools
+  # Ensure final_answer is in the tools
   defp ensure_final_answer(tools) do
     has_final = Enum.any?(tools, fn tool -> tool.name == :final_answer end)
 
@@ -453,20 +464,7 @@ defmodule CodeAgentMinimal.CodeAgent do
     end
   end
 
-  # Notifie le listener de la progression
-  defp notify_progress(nil, _info), do: :ok
-
-  defp notify_progress(pid, info) when is_pid(pid) do
-    send(pid, {:agent_progress, info})
-  end
-
-  # Vérifie si le code est juste un final_answer (pas besoin de validation)
-  defp is_final_answer_only?(code) do
-    trimmed = String.trim(code)
-    String.starts_with?(trimmed, "tools.final_answer.(")
-  end
-
-  # Crée un binding combiné avec tools.* et agents.*
+  # Create combined binding with tools.* and agents.*
   defp create_combined_binding(tools, agent_tools) do
     tools_map = Tool.create_binding(tools) |> Enum.into(%{})
     agents_map = Tool.create_binding(agent_tools) |> Enum.into(%{})

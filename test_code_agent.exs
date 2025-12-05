@@ -18,11 +18,10 @@ IO.puts("=" |> String.duplicate(80))
 task1 = "Calculate 25 * 4, then add 10 to the result"
 
 case CodeAgent.run(task1, tools: [Tool.final_answer()], max_steps: 5) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{inspect(result)}")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -39,11 +38,10 @@ Then calculate and return the average as a float.
 """
 
 case CodeAgent.run(task2, tools: [Tool.final_answer()], max_steps: 5) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{inspect(result)} (attendu: 5.5)")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -75,11 +73,10 @@ Return a formatted string like: "Alice (30 years old) has an average score of X"
 """
 
 case CodeAgent.run(task3, tools: [user_data_tool, Tool.final_answer()], max_steps: 5) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{result}")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -96,11 +93,10 @@ Otherwise, return the string "LOW".
 """
 
 case CodeAgent.run(task4, tools: [Tool.final_answer()], max_steps: 5) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{inspect(result)} (attendu: \"HIGH\" car 15*3=45>40)")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -135,11 +131,10 @@ Return a formatted string like: "The temperature is X°C (Y°F)"
 """
 
 case CodeAgent.run(task5, tools: [temperature_tool, convert_tool, Tool.final_answer()], max_steps: 8) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{result}")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -172,12 +167,11 @@ Return a string like: "Product X generated the most revenue: $Y"
 """
 
 case CodeAgent.run(task6, tools: [sales_data_tool, Tool.final_answer()], max_steps: 8) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{result}")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
     IO.puts("   (attendu: Laptop avec $60000)")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -205,7 +199,7 @@ case CodeAgent.run(task7a, tools: [Tool.final_answer()], max_steps: 5) do
         IO.puts("❌ Erreur dans la continuation: #{inspect(reason)}")
     end
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 
@@ -239,12 +233,11 @@ Return a string like: "Engineering has X employees with average salary $Y"
 """
 
 case CodeAgent.run(task8, tools: [employee_data_tool, Tool.final_answer()], max_steps: 8) do
-  {:ok, result, state} ->
+  {:ok, result} ->
     IO.puts("✅ Résultat: #{result}")
-    IO.puts("   Steps utilisés: #{state.current_step}/#{state.max_steps}")
     IO.puts("   (attendu: 3 employés avec salaire moyen $86000)")
 
-  {:error, reason, _state} ->
+  {:error, reason} ->
     IO.puts("❌ Erreur: #{inspect(reason)}")
 end
 

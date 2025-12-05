@@ -25,3 +25,41 @@ code_agent_minimal-*.tar
 .direnv
 .envrc
 devenv.local.nix
+
+# Environment variables and secrets
+.env
+.env.local
+*.secret
+
+# Editor and IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Elixir Language Server
+.elixir_ls/
+
+# Test coverage
+coverage/
+
+# Local test outputs
+test_*.exs.output
+
+# Research and development files
+*_RESEARCH*.md
+*_ANALYSIS*.md
+*_SUMMARY.txt
+*_MAPPING.md
+*_SNIPPETS.md
+*_CREATED.txt
+*_APPROACHES.md
+*_API.md
+*_COMMUNICATION.md
+*_MECHANISM.md
+
+# Local test scripts (not part of mix test)
+test_*.exs
+!test/
