@@ -13,8 +13,9 @@ CodeAgentEx is a lightweight implementation of an agentic AI system that **write
 
 ### 🔧 Flexible Tool System
 - **Custom Tools**: Define your own tools with typed inputs/outputs
-- **Built-in Tools**: Wikipedia, stock prices, web search, Python execution, image generation (FLUX), vision analysis (Moondream)
+- **Core Library**: Lightweight with no external dependencies beyond LLM client
 - **Parameterized Tools**: Tools can accept arguments for maximum flexibility
+- **Extended Tools**: Python-based tools (Wikipedia, Finance, Images, etc.) available in separate `code_agent_ex_tools` project
 
 ### 🏗️ Hierarchical Agents
 - **Managed Agents**: Agents can delegate to specialized sub-agents
@@ -58,9 +59,6 @@ Client.chat_completion(
   response_schema,
   api_key: "hf_your_token_here"
 )
-
-# Moondream
-{:ok, client} = CodeAgentEx.MoondreamApi.new("your_moondream_key")
 ```
 
 **Option 2: Use environment variables in your project**
@@ -68,36 +66,9 @@ Client.chat_completion(
 ```bash
 # Set environment variables
 export HF_TOKEN=hf_your_token_here
-export MOONDREAM_API_KEY=your_token_here
 ```
 
 Most functions accept an `api_key` option, so you can manage credentials however you prefer.
-
-**Python Dependencies (for Python-based tools)**
-
-If you use tools that require Python (Wikipedia, Finance, SmolAgents, etc.), initialize PythonX in your application:
-
-```elixir
-# In your application.ex start/2 or at runtime
-CodeAgentEx.PythonEnv.init()
-```
-
-Or use custom dependencies:
-
-```elixir
-CodeAgentEx.PythonEnv.init_custom("""
-[project]
-name = "my_project"
-version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = [
-  "wikipedia==1.4.0",
-  "my_custom_package>=1.0.0"
-]
-""")
-```
-
-To see the default dependencies, check `CodeAgentEx.PythonEnv.default_config()`.
 
 ### Basic Usage
 
@@ -121,7 +92,7 @@ config = AgentConfig.new(
 
 ### Running Tests
 
-The project includes 13 comprehensive tests:
+The project includes 9 basic tests:
 
 ```elixir
 # In IEx
@@ -129,10 +100,14 @@ alias CodeAgentEx.IexTest
 
 # Run individual tests
 IexTest.test1()   # Simple arithmetic
+IexTest.test2()   # List manipulation
 IexTest.test3()   # Custom tools
-IexTest.test8()   # Python interpreter
-IexTest.test11()  # FLUX image generation
-IexTest.test12()  # Moondream vision analysis
+IexTest.test4()   # Conditional logic
+IexTest.test5()   # Multiple tools
+IexTest.test6()   # Data processing
+IexTest.test7()   # Data filtering
+IexTest.test8()   # Managed agents (hierarchical)
+IexTest.test9()   # AI-powered validation (requires HF_TOKEN)
 
 # Run all tests
 IexTest.test_all()
@@ -155,18 +130,33 @@ CodeAgent.run(
 # => {:ok, "110", state}
 ```
 
-### Example 2: Using Tools
+### Example 2: Custom Tools
 
 ```elixir
-alias CodeAgentEx.Tools.WikipediaTools
+alias CodeAgentEx.Tool
+
+# Define a custom tool
+user_data_tool = %Tool{
+  name: :get_user_data,
+  description: "Returns a map with user information including name, age, and test scores",
+  inputs: %{},
+  output_type: "map",
+  function: fn ->
+    %{
+      name: "Alice",
+      age: 30,
+      scores: [85, 92, 78, 95, 88]
+    }
+  end
+}
 
 config = AgentConfig.new(
-  tools: [WikipediaTools.wikipedia_search()],
+  tools: [user_data_tool],
   max_steps: 5
 )
 
 CodeAgent.run(
-  "Search Wikipedia for information about Elixir programming language and summarize it",
+  "Get the user data and calculate their average test score",
   config
 )
 ```
@@ -174,69 +164,24 @@ CodeAgent.run(
 ### Example 3: Managed Agents (Hierarchical)
 
 ```elixir
-alias CodeAgentEx.{AgentConfig, Tools.PythonTools, Tools.WikipediaTools}
+alias CodeAgentEx.{AgentConfig, Tool}
 
-# Create a specialized research agent
-researcher = AgentConfig.new(
-  name: :researcher,
-  instructions: "Specialized agent for finding and summarizing information",
-  tools: [WikipediaTools.wikipedia_search()],
+# Create a specialized data processor agent
+processor = AgentConfig.new(
+  name: :data_processor,
+  instructions: "Specialized agent for processing and analyzing data",
+  tools: [],
   max_steps: 3
 )
 
-# Create a specialized calculator agent
-calculator = AgentConfig.new(
-  name: :calculator,
-  instructions: "Specialized agent for complex calculations",
-  tools: [PythonTools.python_interpreter()],
-  max_steps: 3
-)
-
-# Main agent can delegate to both
+# Main agent can delegate to the processor
 config = AgentConfig.new(
-  managed_agents: [researcher, calculator],
+  managed_agents: [processor],
   max_steps: 8
 )
 
 CodeAgent.run(
-  """
-  Use the researcher to find the population of France.
-  Then use the calculator to compute the population density
-  if the area is 643,801 km².
-  """,
-  config
-)
-```
-
-### Example 4: Image Generation with FLUX
-
-```elixir
-alias CodeAgentEx.Tools.SmolAgentsTools
-
-config = AgentConfig.new(
-  tools: SmolAgentsTools.image_tools(),
-  max_steps: 3
-)
-
-CodeAgent.run(
-  "Generate an image of a sunset over the ocean with vibrant colors",
-  config
-)
-# => Returns an AgentImage struct with path to generated image
-```
-
-### Example 5: Vision Analysis with Moondream
-
-```elixir
-alias CodeAgentEx.Tools.MoondreamTools
-
-config = AgentConfig.new(
-  tools: MoondreamTools.basic_tools(),
-  max_steps: 5
-)
-
-CodeAgent.run(
-  "Generate a caption for the image at /path/to/image.png and tell me what colors are visible",
+  "Use the data_processor to analyze a list of numbers and find statistics",
   config
 )
 ```
@@ -262,12 +207,10 @@ CodeAgent (main ReAct loop)
 │   └── Guides LLM behavior
 │
 └── Tools (available functions)
-    ├── PythonTools (execute Python code)
-    ├── WikipediaTools (search Wikipedia)
-    ├── FinanceTools (stock prices via Yahoo Finance)
-    ├── SmolAgentsTools (FLUX, web search via smolagents)
-    ├── MoondreamTools (vision: caption, query, detect, point)
     └── Custom tools (define your own!)
+
+Note: Python-based tools (Wikipedia, Finance, Images, Moondream, etc.)
+have been moved to the separate `code_agent_ex_tools` project.
 ```
 
 ## 🛠️ Creating Custom Tools
@@ -303,29 +246,42 @@ config = AgentConfig.new(
 CodeAgent.run("What's the temperature in Paris?", config)
 ```
 
-## 🧪 Available Tools
+## 🧪 Tool System
 
-### Core Tools
-- **final_answer**: Mark completion and return result (required for all agents)
+### Core Library
 
-### Python Integration
-- **python_interpreter**: Execute Python code via Pythonx
+CodeAgentEx core is **lightweight** with **zero external dependencies** beyond the LLM client. The agent can:
 
-### Information Retrieval
-- **wikipedia_search**: Search Wikipedia articles
-- **web_search**: Search the web via DuckDuckGo
+- Execute Elixir code with persistent bindings
+- Use custom tools you define
+- Delegate to managed sub-agents
 
-### Finance
-- **stock_price**: Get current stock prices from Yahoo Finance
+### Custom Tools
 
-### Vision (Moondream API)
-- **moondream_caption**: Generate image captions
-- **moondream_query**: Answer questions about images
-- **moondream_detect**: Detect and locate objects in images
-- **moondream_point**: Find points of interest in images
+Define tools as simple structs:
 
-### Image Generation
-- **generate_flux_image**: Generate images using FLUX.1-schnell via HuggingFace Spaces
+```elixir
+alias CodeAgentEx.Tool
+
+%Tool{
+  name: :my_tool,
+  description: "Description of what the tool does",
+  inputs: %{"param" => %{type: "string", description: "Parameter description"}},
+  output_type: "string",
+  function: fn param -> "result" end
+}
+```
+
+### Extended Tools (Separate Project)
+
+Python-based tools have been moved to the `code_agent_ex_tools` project:
+
+- **Wikipedia**: Search and retrieve Wikipedia articles
+- **Finance**: Stock prices via Yahoo Finance
+- **Web Search**: DuckDuckGo web search
+- **Python Interpreter**: Execute arbitrary Python code
+- **Image Generation**: FLUX.1-schnell via HuggingFace
+- **Vision**: Moondream API for image analysis
 
 ## ⚙️ Configuration Options
 
@@ -343,6 +299,7 @@ AgentConfig.new(
 
   # LLM settings
   model: "Qwen/Qwen3-Coder-30B-A3B-Instruct",  # Model to use
+  adapter: InstructorLite.Adapters.ChatCompletionsCompatible,  # InstructorLite adapter
   llm_opts: [                          # Additional LLM options
     temperature: 0.7,
     max_tokens: 4000,
@@ -353,9 +310,8 @@ AgentConfig.new(
   max_steps: 10,                       # Maximum iterations
 
   # Advanced
-  backend: :hf,                        # LLM backend (:hf or :openai)
   listener_pid: self(),                # Event listener
-  require_validation: false            # User validation before tool use
+  response_schema: MyCustomSchema      # Custom Ecto schema for final response
 )
 ```
 
@@ -373,15 +329,15 @@ The agent works with any OpenAI-compatible API. Tested models:
 
 ## 📚 Dependencies
 
+CodeAgentEx core has **minimal dependencies**:
+
 ```elixir
-# Core
 {:instructor_lite, "~> 1.1.2"}  # Structured LLM outputs with Ecto schemas
 {:req, "~> 0.5"}                # HTTP client
 {:jason, "~> 1.2"}              # JSON encoding/decoding
-
-# Python integration
-{:pythonx, "~> 0.4"}            # Python interop for smolagents tools
 ```
+
+That's it! No Python, no external services, just pure Elixir.
 
 ## 🤝 Contributing
 
@@ -402,8 +358,6 @@ MIT
 
 - Inspired by [smolagents](https://github.com/huggingface/smolagents) by HuggingFace
 - Uses [instructor_lite](https://github.com/martosaur/instructor_lite) for structured LLM outputs
-- Vision capabilities powered by [Moondream](https://moondream.ai/)
-- Image generation via [FLUX.1-schnell](https://huggingface.co/black-forest-labs/FLUX.1-schnell)
 
 ## 🔗 Related Projects
 

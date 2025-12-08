@@ -185,7 +185,9 @@ defmodule CodeAgentEx.CodeAgent do
       end
 
     # Appeler le LLM avec le schema approprié
-    case call_llm(state.config.model, messages, response_schema, state.config.llm_opts) do
+    # Merge adapter into llm_opts
+    llm_opts = Keyword.put(state.config.llm_opts, :adapter, state.config.adapter)
+    case call_llm(state.config.model, messages, response_schema, llm_opts) do
       {:ok, %Schemas.CodeStep{thought: thought, code: code}} ->
         Logger.info("💭 [CodeAgent] Thought: #{String.slice(thought, 0, 100)}...")
         Logger.debug("📝 [CodeAgent] Code:\n#{code}")
@@ -382,7 +384,8 @@ defmodule CodeAgentEx.CodeAgent do
         ]
 
     # Use CodeStep schema to force code generation with final_answer call
-    case call_llm(state.config.model, messages, Schemas.CodeStep, state.config.llm_opts) do
+    llm_opts = Keyword.put(state.config.llm_opts, :adapter, state.config.adapter)
+    case call_llm(state.config.model, messages, Schemas.CodeStep, llm_opts) do
       {:ok, %Schemas.CodeStep{code: code}} ->
         case Executor.execute_sandboxed(code, state.binding) do
           {:ok, _result, new_binding} ->

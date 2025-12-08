@@ -25,13 +25,13 @@ defmodule CodeAgentEx.MixProject do
       # LLM client with structured outputs
       {:instructor_lite, "~> 1.1.2"},
       {:req, "~> 0.5"},
-      {:jason, "~> 1.2"},
+      {:jason, "~> 1.2"}
 
       # Code execution sandbox (not used for now, using Code.eval_string instead)
-      # {:mini_elixir, github: "sequinstream/mini_elixir"},
+      # {:mini_elixir, github: "sequinstream/mini_elixir"}
 
-      # Python integration
-      {:pythonx, "~> 0.4"}
+      # Python integration (moved to code_agent_ex_tools separate project)
+      # {:pythonx, "~> 0.4"}
     ]
   end
 end

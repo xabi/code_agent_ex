@@ -63,6 +63,7 @@ defmodule CodeAgentEx.AgentConfig do
   @default_max_steps 10
   # Désactiver tool calling natif
   @default_llm_opts [tool_choice: "none", temperature: 0.7, max_tokens: 4000]
+  @default_adapter InstructorLite.Adapters.ChatCompletionsCompatible
 
   defstruct [
     :instructions,
@@ -72,7 +73,7 @@ defmodule CodeAgentEx.AgentConfig do
     managed_agents: [],
     listener_pid: nil,
     llm_opts: @default_llm_opts,
-    backend: :hf,
+    adapter: @default_adapter,
     model: @default_model,
     max_steps: @default_max_steps
   ]
@@ -90,7 +91,7 @@ defmodule CodeAgentEx.AgentConfig do
   - `:max_steps` - Maximum number of iterations (optional)
   - `:listener_pid` - Orchestrator PID (required for managed agents, automatically provided)
   - `:llm_opts` - Additional options for the LLM API (default: [])
-  - `:backend` - LLM backend to use: :hf or :mistral (default: :hf)
+  - `:adapter` - InstructorLite adapter module (default: InstructorLite.Adapters.ChatCompletionsCompatible)
   - `:response_schema` - Ecto schema module for structured LLM response (optional)
     When provided, this schema will be used for the final step instead of the default CodeStep.
     Example: `MyApp.CustomResponseSchema` (must use InstructorLite.Instruction)

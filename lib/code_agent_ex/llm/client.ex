@@ -27,6 +27,8 @@ defmodule CodeAgentEx.LLM.Client do
 
   - `:api_key` - API key (defaults to HF_TOKEN or OPENAI_API_KEY env var)
   - `:base_url` - Base URL for the API (default: "https://router.huggingface.co/v1")
+  - `:adapter` - InstructorLite adapter module (default: InstructorLite.Adapters.ChatCompletionsCompatible)
+  - `:adapter_context` - Additional adapter context options (merged with default context)
   - `:receive_timeout` - Request timeout in ms (default: 120_000)
   - `:http_options` - Additional HTTP options
   - Any other InstructorLite options
@@ -51,12 +53,13 @@ defmodule CodeAgentEx.LLM.Client do
     # Extract configuration options
     api_key = Keyword.get(opts, :api_key) || System.get_env("HF_TOKEN") || System.get_env("OPENAI_API_KEY")
     base_url = Keyword.get(opts, :base_url, "https://router.huggingface.co/v1")
+    adapter = Keyword.get(opts, :adapter, InstructorLite.Adapters.ChatCompletionsCompatible)
     receive_timeout = Keyword.get(opts, :receive_timeout, 120_000)
 
     if is_nil(api_key) or api_key == "" do
       {:error, "API key required (HF_TOKEN, OPENAI_API_KEY, or :api_key option)"}
     else
-      Logger.debug("LLM Client: calling #{model} at #{base_url} with schema #{inspect(response_schema)}")
+      Logger.debug("LLM Client: calling #{model} at #{base_url} with adapter #{inspect(adapter)} and schema #{inspect(response_schema)}")
 
       # Prepare params for InstructorLite
       params = %{
@@ -64,17 +67,23 @@ defmodule CodeAgentEx.LLM.Client do
         messages: messages
       }
 
-      # Call InstructorLite with ChatCompletionsCompatible adapter
+      # Build default adapter context
+      default_context = [
+        api_key: api_key,
+        url: "#{base_url}/chat/completions",
+        http_options: Keyword.get(opts, :http_options, [receive_timeout: receive_timeout])
+      ]
+
+      # Merge with custom adapter_context if provided
+      adapter_context = Keyword.merge(default_context, Keyword.get(opts, :adapter_context, []))
+
+      # Call InstructorLite with configurable adapter
       result =
         InstructorLite.instruct(
           params,
           response_model: response_schema,
-          adapter: InstructorLite.Adapters.ChatCompletionsCompatible,
-          adapter_context: [
-            api_key: api_key,
-            url: "#{base_url}/chat/completions",
-            http_options: Keyword.get(opts, :http_options, [receive_timeout: receive_timeout])
-          ]
+          adapter: adapter,
+          adapter_context: adapter_context
         )
 
       case result do

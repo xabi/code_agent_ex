@@ -15,7 +15,7 @@ defmodule CodeAgentEx.AIValidator do
   """
 
   require Logger
-  alias CodeAgentEx.AgentServer
+  alias CodeAgentEx.{AgentServer, LLM.Client}
 
   defmodule ValidationDecision do
     @moduledoc """
@@ -84,8 +84,10 @@ defmodule CodeAgentEx.AIValidator do
   Creates a validation handler function that uses AI to validate code.
 
   ## Options
-  - `:model` - HuggingFace model to use (default: "Qwen/Qwen3-Coder-30B-A3B-Instruct")
-  - `:api_key` - HuggingFace API key (default: from HF_TOKEN env var)
+  - `:model` - Model to use (default: "Qwen/Qwen3-Coder-30B-A3B-Instruct")
+  - `:adapter` - InstructorLite adapter (default: InstructorLite.Adapters.ChatCompletionsCompatible)
+  - `:api_key` - API key (default: from HF_TOKEN or OPENAI_API_KEY env var)
+  - `:base_url` - Base URL for the API (default: "https://router.huggingface.co/v1")
   - `:auto_approve_threshold` - Auto-approve if safety_score >= this (default: 80)
   - `:verbose` - Show detailed validation info (default: false)
   - `:prompt_fn` - Custom prompt function (default: `&default_prompt_fn/1`)
@@ -104,13 +106,15 @@ defmodule CodeAgentEx.AIValidator do
   """
   def create_handler(opts \\ []) do
     model = Keyword.get(opts, :model, "Qwen/Qwen3-Coder-30B-A3B-Instruct")
-    api_key = Keyword.get(opts, :api_key, System.get_env("HF_TOKEN"))
+    adapter = Keyword.get(opts, :adapter, InstructorLite.Adapters.ChatCompletionsCompatible)
+    api_key = Keyword.get(opts, :api_key)
+    base_url = Keyword.get(opts, :base_url)
     auto_approve_threshold = Keyword.get(opts, :auto_approve_threshold, 80)
     verbose = Keyword.get(opts, :verbose, false)
     prompt_fn = Keyword.get(opts, :prompt_fn, &default_prompt_fn/1)
 
     fn validation_request ->
-      validate_with_ai(validation_request, model, api_key, auto_approve_threshold, verbose, prompt_fn)
+      validate_with_ai(validation_request, model, adapter, api_key, base_url, auto_approve_threshold, verbose, prompt_fn)
     end
   end
 
@@ -124,7 +128,7 @@ defmodule CodeAgentEx.AIValidator do
 
   Returns a decision: :approve, :reject, {:modify, code}, or {:feedback, message}
   """
-  def validate_with_ai(validation_request, model, api_key, auto_approve_threshold, verbose, prompt_fn) do
+  def validate_with_ai(validation_request, model, adapter, api_key, base_url, auto_approve_threshold, verbose, prompt_fn) do
     %{
       agent_pid: agent_pid,
       agent_name: agent_name,
@@ -148,7 +152,13 @@ defmodule CodeAgentEx.AIValidator do
       agent_name: agent_name
     })
 
-    case call_instructor(prompt, model, api_key) do
+    # Build options for LLM.Client
+    llm_opts = []
+    llm_opts = if api_key, do: Keyword.put(llm_opts, :api_key, api_key), else: llm_opts
+    llm_opts = if base_url, do: Keyword.put(llm_opts, :base_url, base_url), else: llm_opts
+    llm_opts = Keyword.put(llm_opts, :adapter, adapter)
+
+    case call_llm_client(prompt, model, llm_opts) do
       {:ok, %ValidationDecision{} = decision} ->
         if verbose do
           IO.puts("""
@@ -208,32 +218,9 @@ defmodule CodeAgentEx.AIValidator do
     end
   end
 
-  # Call InstructorLite to get structured output from LLM
-  # Uses ChatCompletionsCompatible adapter for HuggingFace
-  defp call_instructor(prompt, model, api_key) do
-    try do
-      result = InstructorLite.instruct(
-        %{
-          model: model,
-          messages: [
-            %{role: "user", content: prompt}
-          ]
-        },
-        response_model: ValidationDecision,
-        adapter: InstructorLite.Adapters.ChatCompletionsCompatible,
-        adapter_context: [
-          api_key: api_key,
-          url: "https://router.huggingface.co/v1/chat/completions"
-        ]
-      )
-
-      case result do
-        {:ok, decision} -> {:ok, decision}
-        {:error, reason} -> {:error, reason}
-        other -> {:error, "Unexpected result: #{inspect(other)}"}
-      end
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
+  # Call LLM.Client to get structured output from LLM
+  defp call_llm_client(prompt, model, llm_opts) do
+    messages = [%{role: "user", content: prompt}]
+    Client.chat_completion(model, messages, ValidationDecision, llm_opts)
   end
 end
