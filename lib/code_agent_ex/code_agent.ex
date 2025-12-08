@@ -27,7 +27,7 @@ defmodule CodeAgentEx.CodeAgent do
   """
 
   alias CodeAgentEx.{Executor, Memory, Prompts, Tool, AgentConfig, AgentOrchestrator}
-  alias CodeAgentEx.OpenaiChat
+  alias CodeAgentEx.LLM.{Client, Schemas}
   require Logger
 
   defstruct [
@@ -156,9 +156,9 @@ defmodule CodeAgentEx.CodeAgent do
     {:ok, result, state}
   end
 
-  defp execute_loop(%{current_step: step, max_steps: max} = state) when step >= max do
+  defp execute_loop(%{current_step: step, config: %{max_steps: max}} = state) when step >= max do
     Logger.warning("⏰ [CodeAgent] Max steps reached (#{max})")
-    # Forcer une réponse finale
+    # Force a final answer
     force_final_answer(state)
   end
 
@@ -169,75 +169,53 @@ defmodule CodeAgentEx.CodeAgent do
     # Construire les messages pour le LLM
     messages = build_messages(state)
 
-    # Détecter si c'est la dernière étape (pour appliquer response_format custom)
+    # Détecter si c'est la dernière étape (pour appliquer response_schema custom)
     is_final_step = step >= state.config.max_steps
 
-    # Définir le response_format approprié
-    llm_opts =
+    # Définir le response_schema approprié
+    response_schema =
       cond do
-        # Dernière étape avec response_format custom
-        is_final_step && state.config.response_format ->
-          Keyword.put(state.config.llm_opts, :response_format, state.config.response_format)
+        # Dernière étape avec response_schema custom
+        is_final_step && state.config.response_schema ->
+          state.config.response_schema
 
-        # Étapes intermédiaires : forcer JSON pour code generation
-        not is_final_step ->
-          code_response_format = %{
-            type: "json_object",
-            schema: %{
-              type: "object",
-              properties: %{
-                thought: %{type: "string", description: "Your reasoning about what to do next"},
-                code: %{type: "string", description: "The Elixir code to execute"}
-              },
-              required: ["thought", "code"]
-            }
-          }
-
-          Keyword.put(state.config.llm_opts, :response_format, code_response_format)
-
-        # Pas de response_format
+        # Étapes intermédiaires : schema pour code generation
         true ->
-          state.config.llm_opts
+          Schemas.CodeStep
       end
 
-    # Appeler le LLM
-    case call_llm(state.config.model, messages, llm_opts, state.config.backend) do
-      {:ok, response} ->
-        # Parser la réponse pour extraire le code
-        case parse_response(response) do
-          {:code, thought, code} ->
-            Logger.info("💭 [CodeAgent] Thought: #{String.slice(thought, 0, 100)}...")
-            Logger.debug("📝 [CodeAgent] Code:\n#{code}")
+    # Appeler le LLM avec le schema approprié
+    case call_llm(state.config.model, messages, response_schema, state.config.llm_opts) do
+      {:ok, %Schemas.CodeStep{thought: thought, code: code}} ->
+        Logger.info("💭 [CodeAgent] Thought: #{String.slice(thought, 0, 100)}...")
+        Logger.debug("📝 [CodeAgent] Code:\n#{code}")
 
-            # Always send validation request to orchestrator
-            # Orchestrator decides whether to auto-approve or ask user
-            {:pending_validation, thought, code, %{state | current_step: step}}
+        # Always send validation request to orchestrator
+        # Orchestrator decides whether to auto-approve or ask user
+        {:pending_validation, thought, code, %{state | current_step: step}}
 
-          {:final_text, answer} ->
-            # Le LLM a répondu directement sans code
-            Logger.info("📋 [CodeAgent] Direct text response")
-            {:ok, answer, state}
-
-          {:error, parse_error} ->
-            Logger.error("❌ [CodeAgent] Parse error: #{parse_error}")
-
-            step_record = %{
-              step: step,
-              error: "Failed to parse response: #{parse_error}"
-            }
-
-            new_state = %{
-              state
-              | memory: Memory.add_step(state.memory, step_record),
-                current_step: step
-            }
-
-            execute_loop(new_state)
-        end
+      {:ok, custom_response} ->
+        # Custom schema response (final step with custom schema)
+        Logger.info("📋 [CodeAgent] Custom schema response")
+        # Convert struct to JSON string for compatibility
+        response_json = Jason.encode!(Map.from_struct(custom_response))
+        {:ok, response_json, state}
 
       {:error, llm_error} ->
         Logger.error("❌ [CodeAgent] LLM error: #{inspect(llm_error)}")
-        {:error, llm_error, state}
+
+        step_record = %{
+          step: step,
+          error: "LLM call failed: #{inspect(llm_error)}"
+        }
+
+        new_state = %{
+          state
+          | memory: Memory.add_step(state.memory, step_record),
+            current_step: step
+        }
+
+        execute_loop(new_state)
     end
   end
 
@@ -373,49 +351,26 @@ defmodule CodeAgentEx.CodeAgent do
     ] ++ memory_messages
   end
 
-  # Appelle le LLM
-  defp call_llm(model, messages, llm_opts, _backend) do
-    # Utiliser OpenaiChat (compatible OpenAI, HuggingFace, etc.)
-    case OpenaiChat.chat_completion(model, messages, llm_opts) do
-      {:ok, %{"choices" => [%{"message" => %{"content" => content}} | _]}} ->
-        {:ok, content}
-
-      {:ok, %{content: content}} ->
-        {:ok, content}
-
-      {:error, _} = error ->
-        error
-    end
+  # Call LLM with structured output via InstructorLite
+  defp call_llm(model, messages, response_schema, llm_opts) do
+    # Use the new Client based on InstructorLite
+    Client.chat_completion(model, messages, response_schema, llm_opts)
   end
 
-  # Parse la réponse du LLM pour extraire le code
-  defp parse_response(response) do
-    case Jason.decode(response) do
-      {:ok, %{"thought" => thought, "code" => code}} ->
-        {:code, thought, code}
-
-      {:ok, json_response} ->
-        # JSON valide mais pas le format attendu pour le code
-        # Peut-être une réponse finale en JSON (dernière étape)
-        {:final_text, Jason.encode!(json_response)}
-
-      {:error, parse_error} ->
-        {:error,
-         "Failed to parse JSON response: #{inspect(parse_error)}\nResponse: #{String.slice(response, 0, 200)}"}
-    end
-  end
+  # Note: parse_response is no longer needed as InstructorLite handles parsing
+  # Keeping it for backward compatibility but it won't be called in the new flow
 
   defp check_final_answer(_result, binding) do
-    # Vérifier si __final_answer__ est dans le binding
+    # Check if __final_answer__ is in the binding
     case Map.get(binding, :__final_answer__) do
       nil -> :continue
       answer -> {:final, answer}
     end
   end
 
-  # Force une réponse finale quand max_steps atteint
+  # Force a final answer when max_steps is reached
   defp force_final_answer(state) do
-    # Construire un message demandant explicitement une réponse finale
+    # Build a message explicitly requesting a final answer
     messages =
       build_messages(state) ++
         [
@@ -426,26 +381,18 @@ defmodule CodeAgentEx.CodeAgent do
           }
         ]
 
-    case call_llm(state.config.model, messages, state.config.llm_opts, state.config.backend) do
-      {:ok, response} ->
-        case parse_response(response) do
-          {:code, _thought, code} ->
-            case Executor.execute_sandboxed(code, state.binding) do
-              {:ok, _result, new_binding} ->
-                case Map.get(new_binding, :__final_answer__) do
-                  nil -> {:error, "Agent did not provide final answer", state}
-                  answer -> {:ok, answer, %{state | binding: new_binding}}
-                end
-
-              {:error, error} ->
-                {:error, "Failed to execute final answer: #{inspect(error)}", state}
+    # Use CodeStep schema to force code generation with final_answer call
+    case call_llm(state.config.model, messages, Schemas.CodeStep, state.config.llm_opts) do
+      {:ok, %Schemas.CodeStep{code: code}} ->
+        case Executor.execute_sandboxed(code, state.binding) do
+          {:ok, _result, new_binding} ->
+            case Map.get(new_binding, :__final_answer__) do
+              nil -> {:error, "Agent did not provide final answer", state}
+              answer -> {:ok, answer, %{state | binding: new_binding}}
             end
 
-          {:final_text, answer} ->
-            {:ok, answer, state}
-
-          {:error, _} ->
-            {:error, "Agent did not provide final answer", state}
+          {:error, error} ->
+            {:error, "Failed to execute final answer: #{inspect(error)}", state}
         end
 
       {:error, error} ->

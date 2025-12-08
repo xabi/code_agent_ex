@@ -51,14 +51,12 @@ defmodule CodeAgentEx.Memory do
     code = Map.get(step, :code, "")
 
     if code != "" do
-      """
-      #{thought}
-
-      ```elixir
-      #{code}
-      ```
-      """
+      Jason.encode!(%{
+        thought: thought,
+        code: code
+      })
     else
+      # Fallback for steps without code
       thought
     end
   end

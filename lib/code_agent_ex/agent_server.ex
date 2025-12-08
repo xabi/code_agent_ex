@@ -181,6 +181,11 @@ defmodule CodeAgentEx.AgentServer do
             pending_validation: {thought, code, agent_state}
         }
 
+      {:rejected, agent_state} ->
+        Logger.warning("[AgentServer #{server_state.config.name}] Execution rejected by validator")
+        send(server_state.parent_pid, {:rejected, self()})
+        %{server_state | status: :rejected, agent_state: agent_state}
+
       {:error, reason, agent_state} ->
         Logger.error("[AgentServer #{server_state.config.name}] Task failed: #{inspect(reason)}")
         send(server_state.parent_pid, {:error, self(), reason})

@@ -41,7 +41,7 @@ defmodule CodeAgentEx.AIValidator do
   """
   def default_prompt_fn(%{thought: thought, code: code, agent_name: agent_name}) do
     """
-    You are a code safety validator. Analyze the following code execution request and decide if it should be approved.
+    You are a code safety validator for an Elixir AI agent system. Analyze the following code execution request and decide if it should be approved.
 
     AGENT: #{agent_name}
 
@@ -52,6 +52,12 @@ defmodule CodeAgentEx.AIValidator do
     ```elixir
     #{code}
     ```
+
+    IMPORTANT CONTEXT:
+    - The agent has access to tools via `tools.tool_name.(args)` syntax (e.g., `tools.final_answer.("result")`)
+    - The agent can call sub-agents via `agents.agent_name.(task)` syntax
+    - These are valid Elixir function calls using anonymous functions from a binding
+    - Variables persist between steps, so the agent can reference previously computed values
 
     Analyze this code for:
     1. **Safety**: No destructive operations, dangerous file access, or network calls
@@ -69,7 +75,8 @@ defmodule CodeAgentEx.AIValidator do
     - APPROVE if safety_score >= 70 and code looks correct
     - MODIFY if code needs small fixes (syntax errors, minor improvements)
     - FEEDBACK if agent misunderstood the task
-    - REJECT only for dangerous/malicious code
+    - REJECT only for dangerous/malicious code (file deletion, system commands, etc.)
+    - Tool calls like `tools.final_answer.()` and agent calls like `agents.xxx.()` are VALID and SAFE
     """
   end
 

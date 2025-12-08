@@ -58,12 +58,6 @@ defmodule CodeAgentEx.AgentConfig do
 
   alias CodeAgentEx.{AgentSupervisor, AgentServer, AgentOrchestrator}
 
-  # Qwen/Qwen3-30B-A3B-Thinking-2507 (invente des données au lieu d'utiliser les tools)
-  # meta-llama/Llama-4-Scout-17B-16E-Instruct (plus disponible)
-  # meta-llama/Llama-4-Maverick-17B-128E-Instruct (plus disponible)
-  # mistralai/Mixtral-8x22B-Instruct-v0.1 (plus disponible)
-  # openai/gpt-oss-20b (utilise tool calling natif malgré tool_choice: none)
-  # meta-llama/Llama-3.3-70B-Instruct (bon mais parfois n'utilise pas les tools)
   @default_model "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 
   @default_max_steps 10
@@ -72,7 +66,7 @@ defmodule CodeAgentEx.AgentConfig do
 
   defstruct [
     :instructions,
-    :response_format,
+    :response_schema,
     name: :agent,
     tools: [],
     managed_agents: [],
@@ -97,9 +91,9 @@ defmodule CodeAgentEx.AgentConfig do
   - `:listener_pid` - Orchestrator PID (required for managed agents, automatically provided)
   - `:llm_opts` - Additional options for the LLM API (default: [])
   - `:backend` - LLM backend to use: :hf or :mistral (default: :hf)
-  - `:response_format` - Structured response format for the LLM (optional)
-    Can be a map with `type: "json_object"` and optionally `schema: {...}`
-    Example: `%{type: "json_object", schema: %{type: "object", properties: %{...}}}`
+  - `:response_schema` - Ecto schema module for structured LLM response (optional)
+    When provided, this schema will be used for the final step instead of the default CodeStep.
+    Example: `MyApp.CustomResponseSchema` (must use InstructorLite.Instruction)
   """
   def new(opts \\ []) do
     struct!(__MODULE__, opts)
