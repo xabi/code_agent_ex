@@ -49,10 +49,13 @@ CodeAgentEx is a **library**, not an application. It does not impose configurati
 **Option 1: Pass API keys directly to functions**
 
 ```elixir
-# HuggingFace
-CodeAgentEx.HfChat.chat_completion(
+# LLM Client (HuggingFace or OpenAI-compatible)
+alias CodeAgentEx.LLM.Client
+
+Client.chat_completion(
   model,
   messages,
+  response_schema,
   api_key: "hf_your_token_here"
 )
 
@@ -362,7 +365,6 @@ The agent works with any OpenAI-compatible API. Tested models:
 
 ### Recommended
 - **Qwen/Qwen3-Coder-30B-A3B-Instruct** (default) - Best results for code generation
-- **meta-llama/Llama-4-Scout-17B-16E-Instruct** - Good alternative
 
 ### Also Compatible
 - OpenAI models (gpt-4, gpt-3.5-turbo, etc.)
@@ -373,12 +375,15 @@ The agent works with any OpenAI-compatible API. Tested models:
 
 ```elixir
 # Core
-{:req, "~> 0.5"}              # HTTP client
-{:jason, "~> 1.2"}            # JSON encoding/decoding
-{:openai_ex, "~> 0.9.18"}     # OpenAI-compatible API client
+{:instructor_lite, "~> 1.1.2"}  # Structured LLM outputs with Ecto schemas
+{:req, "~> 0.5"}                # HTTP client
+{:jason, "~> 1.2"}              # JSON encoding/decoding
+
+# Code execution
+{:mini_elixir, github: "sequinstream/mini_elixir"}  # Sandboxed code execution
 
 # Python integration
-{:pythonx, "~> 0.4"}          # Python interop for smolagents tools
+{:pythonx, "~> 0.4"}            # Python interop for smolagents tools
 ```
 
 ## 🤝 Contributing
@@ -399,7 +404,7 @@ MIT
 ## 🙏 Acknowledgments
 
 - Inspired by [smolagents](https://github.com/huggingface/smolagents) by HuggingFace
-- Uses [openai_ex](https://github.com/cyberchitta/openai_ex) for LLM communication
+- Uses [instructor_lite](https://github.com/martosaur/instructor_lite) for structured LLM outputs
 - Vision capabilities powered by [Moondream](https://moondream.ai/)
 - Image generation via [FLUX.1-schnell](https://huggingface.co/black-forest-labs/FLUX.1-schnell)
 
