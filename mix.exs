@@ -27,8 +27,8 @@ defmodule CodeAgentEx.MixProject do
       {:req, "~> 0.5"},
       {:jason, "~> 1.2"},
 
-      # Code execution sandbox
-      {:mini_elixir, github: "sequinstream/mini_elixir"},
+      # Code execution sandbox (not used for now, using Code.eval_string instead)
+      # {:mini_elixir, github: "sequinstream/mini_elixir"},
 
       # Python integration
       {:pythonx, "~> 0.4"}

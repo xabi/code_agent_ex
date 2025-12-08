@@ -379,9 +379,6 @@ The agent works with any OpenAI-compatible API. Tested models:
 {:req, "~> 0.5"}                # HTTP client
 {:jason, "~> 1.2"}              # JSON encoding/decoding
 
-# Code execution
-{:mini_elixir, github: "sequinstream/mini_elixir"}  # Sandboxed code execution
-
 # Python integration
 {:pythonx, "~> 0.4"}            # Python interop for smolagents tools
 ```
