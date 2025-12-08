@@ -86,6 +86,10 @@ defmodule CodeAgentEx.AgentConfig do
   - `:name` - Agent name (default: :agent)
   - `:instructions` - Instructions describing the agent's role and behavior (optional)
   - `:tools` - List of tools available for this agent (default: [])
+    Tools can be either:
+    - `%CodeAgentEx.Tool{}` structs
+    - Plain maps with `:name`, `:description`, `:inputs`, `:output_type`, `:function` keys
+    Maps will be automatically converted to Tool structs.
   - `:managed_agents` - List of sub-agents this agent can use (default: [])
   - `:model` - LLM model to use (optional)
   - `:max_steps` - Maximum number of iterations (optional)
@@ -97,7 +101,18 @@ defmodule CodeAgentEx.AgentConfig do
     Example: `MyApp.CustomResponseSchema` (must use InstructorLite.Instruction)
   """
   def new(opts \\ []) do
-    struct!(__MODULE__, opts)
+    # Normalize tools: convert maps to Tool structs
+    normalized_opts =
+      case Keyword.get(opts, :tools) do
+        nil ->
+          opts
+
+        tools ->
+          normalized_tools = Enum.map(tools, &normalize_tool/1)
+          Keyword.put(opts, :tools, normalized_tools)
+      end
+
+    struct!(__MODULE__, normalized_opts)
   end
 
   @doc """
@@ -163,4 +178,11 @@ defmodule CodeAgentEx.AgentConfig do
   # Normalize charlists to binaries
   defp normalize_arg(arg) when is_list(arg), do: List.to_string(arg)
   defp normalize_arg(arg), do: arg
+
+  # Convert tool maps to Tool structs
+  defp normalize_tool(%CodeAgentEx.Tool{} = tool), do: tool
+
+  defp normalize_tool(tool_map) when is_map(tool_map) do
+    struct!(CodeAgentEx.Tool, tool_map)
+  end
 end

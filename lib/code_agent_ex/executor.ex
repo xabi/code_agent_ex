@@ -56,11 +56,14 @@ defmodule CodeAgentEx.Executor do
     try do
       {result, new_binding} = Code.eval_string(code, eval_binding)
 
+      # Convertir les tuples {:image, path}, {:video, path}, {:audio, path} en AgentTypes
+      converted_result = CodeAgentEx.AgentTypes.from_tuple(result)
+
       # Mettre à jour le binding avec les nouvelles variables créées
       # Cela permet de réutiliser les variables d'un step à l'autre
       updated_binding = merge_bindings(binding, new_binding)
 
-      {:ok, result, updated_binding}
+      {:ok, converted_result, updated_binding}
     rescue
       e ->
         Logger.error("🔒 [Executor] Execution error: #{Exception.message(e)}")
@@ -68,10 +71,12 @@ defmodule CodeAgentEx.Executor do
     catch
       :throw, {:final_answer, answer} ->
         # Capturer le throw de final_answer (comme FinalAnswerException dans smolagents)
+        # Convertir les tuples en AgentTypes
+        converted_answer = CodeAgentEx.AgentTypes.from_tuple(answer)
         # Marquer le binding comme contenant une final_answer
-        updated_binding = Map.put(binding, :__final_answer__, answer)
+        updated_binding = Map.put(binding, :__final_answer__, converted_answer)
 
-        {:ok, answer, updated_binding}
+        {:ok, converted_answer, updated_binding}
     end
   end
 

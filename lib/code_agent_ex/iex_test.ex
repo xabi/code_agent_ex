@@ -32,7 +32,9 @@ defmodule CodeAgentEx.IexTest do
       {"Test 6: Data processing", &test6/0},
       {"Test 7: Filtrage de données", &test7/0},
       {"Test 8: Managed agents", &test8/0},
-      {"Test 9: AI-powered validation", &test9/0}
+      {"Test 9: AI-powered validation", &test9/0},
+      {"Test 10: Auto-conversion des maps en structs", &test10/0},
+      {"Test 11: Orchestrator réutilisable (multi-questions)", &test11/0}
     ]
 
     results =
@@ -343,6 +345,131 @@ defmodule CodeAgentEx.IexTest do
           IO.puts("\n❌ Error: #{inspect(reason)}")
           {:error, reason}
       end
+    end
+  end
+
+  @doc """
+  Test 10: Conversion automatique des maps en Tool structs.
+  Vérifie que les tools passés comme maps simples sont automatiquement convertis.
+  """
+  def test10 do
+    # Define tools as plain maps (like code_agent_ex_tools does)
+    get_weather_map = %{
+      name: :get_weather,
+      description: "Returns the current weather for a city",
+      inputs: %{
+        "city" => %{type: "string", description: "Name of the city"}
+      },
+      output_type: "string",
+      function: fn city ->
+        city = normalize_arg(city)
+        "Weather in #{city}: Sunny, 22°C"
+      end
+    }
+
+    get_time_map = %{
+      name: :get_time,
+      description: "Returns the current time",
+      inputs: %{},
+      output_type: "string",
+      function: fn -> "14:30" end
+    }
+
+    task = """
+    Get the weather for Paris using get_weather.
+    Also get the current time using get_time.
+    Return a string like: "At TIME, the weather in Paris is: WEATHER"
+    """
+
+    # Pass maps directly - they should be auto-converted
+    config =
+      AgentConfig.new(
+        tools: [get_weather_map, get_time_map],
+        max_steps: 5
+      )
+
+    CodeAgent.run(task, config)
+  end
+
+  # Helper to normalize charlists
+  defp normalize_arg(arg) when is_list(arg), do: List.to_string(arg)
+  defp normalize_arg(arg), do: arg
+
+  @doc """
+  Test 11: Réutilisation d'un orchestrator pour plusieurs tâches.
+  Démontre comment maintenir un contexte conversationnel entre plusieurs questions.
+  """
+  def test11 do
+    alias CodeAgentEx.AgentOrchestrator
+
+    IO.puts("\n🔄 Starting reusable orchestrator for multiple questions...\n")
+
+    # Create a simple data context tool
+    company_data_tool = %{
+      name: :get_company_data,
+      description: "Returns company employee and sales data",
+      inputs: %{},
+      output_type: "map",
+      function: fn ->
+        %{
+          employees: [
+            %{name: "Alice", department: "Engineering", salary: 95000, years: 5},
+            %{name: "Bob", department: "Sales", salary: 75000, years: 3},
+            %{name: "Charlie", department: "Engineering", salary: 105000, years: 8},
+            %{name: "Diana", department: "Marketing", salary: 80000, years: 4}
+          ],
+          quarterly_sales: [120_000, 135_000, 142_000, 158_000]
+        }
+      end
+    }
+
+    config =
+      AgentConfig.new(
+        name: :data_analyst,
+        instructions: "You are a data analyst. Answer questions about company data.",
+        tools: [company_data_tool],
+        max_steps: 8
+      )
+
+    # Start orchestrator once and run multiple tasks
+    with {:ok, orch} <- AgentOrchestrator.start_link(config),
+         _ <- IO.puts("✅ Orchestrator started with PID: #{inspect(orch)}\n"),
+
+         # Question 1
+         _ <- IO.puts("📝 Question 1: What is the average employee salary?"),
+         _ <- IO.puts(String.duplicate("-", 60)),
+         {:ok, result1} <- AgentOrchestrator.run_task(orch, "Get the company data and calculate the average employee salary. Return just the number."),
+         _ <- IO.puts("✅ Answer 1: #{result1}\n"),
+
+         # Question 2
+         _ <- IO.puts("📝 Question 2: How many people work in Engineering?"),
+         _ <- IO.puts(String.duplicate("-", 60)),
+         {:ok, result2} <- AgentOrchestrator.run_task(orch, "Get the company data and count how many employees are in the Engineering department. Return just the number."),
+         _ <- IO.puts("✅ Answer 2: #{result2}\n"),
+
+         # Question 3
+         _ <- IO.puts("📝 Question 3: What is the total sales growth from Q1 to Q4?"),
+         _ <- IO.puts(String.duplicate("-", 60)),
+         {:ok, result3} <- AgentOrchestrator.run_task(orch, "Get the company data and calculate the sales growth from the first quarter to the last quarter. Return the difference."),
+         _ <- IO.puts("✅ Answer 3: #{result3}\n"),
+
+         # Question 4
+         _ <- IO.puts("📝 Question 4: Who is the highest paid employee?"),
+         _ <- IO.puts(String.duplicate("-", 60)),
+         {:ok, result4} <- AgentOrchestrator.run_task(orch, "Get the company data and find the name of the employee with the highest salary."),
+         _ <- IO.puts("✅ Answer 4: #{result4}\n") do
+
+      # Success - stop orchestrator
+      AgentOrchestrator.stop(orch)
+      IO.puts("🛑 Orchestrator stopped\n")
+      IO.puts("✨ All questions answered successfully using the same orchestrator!")
+      IO.puts("   The orchestrator maintained state and memory between tasks.\n")
+
+      {:ok, "Completed 4 questions successfully"}
+    else
+      {:error, reason} = error ->
+        IO.puts("❌ Error: #{inspect(reason)}")
+        error
     end
   end
 

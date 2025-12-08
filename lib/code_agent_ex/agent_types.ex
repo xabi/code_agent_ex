@@ -255,6 +255,29 @@ defmodule CodeAgentEx.AgentTypes do
   end
 
   @doc """
+  Converts tuple results from external tools to AgentTypes.
+
+  External tools (like code_agent_ex_tools) return tuples like:
+  - {:image, path} → AgentImage
+  - {:video, path} → AgentVideo
+  - {:audio, path} → AgentAudio
+  - other → unchanged
+  """
+  def from_tuple({:image, path}) when is_binary(path) do
+    AgentImage.from_path(path)
+  end
+
+  def from_tuple({:video, path}) when is_binary(path) do
+    AgentVideo.from_path(path)
+  end
+
+  def from_tuple({:audio, path}) when is_binary(path) do
+    AgentAudio.from_path(path)
+  end
+
+  def from_tuple(value), do: value
+
+  @doc """
   Convertit une valeur en sa représentation string pour le LLM.
 
   - AgentImage/AgentAudio/AgentVideo → path

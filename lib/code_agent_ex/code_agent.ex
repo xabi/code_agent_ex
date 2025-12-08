@@ -116,11 +116,15 @@ defmodule CodeAgentEx.CodeAgent do
           "🔄 [CodeAgent] Continuing from previous state (#{Memory.count(previous_state.memory)} steps)"
         )
 
+        # Clean up __final_answer__ from previous task's binding
+        cleaned_binding = Map.delete(previous_state.binding, :__final_answer__)
+
         %{
           previous_state
           | task: task,
             current_step: 0,
-            final_result: nil
+            final_result: nil,
+            binding: cleaned_binding
         }
       else
         # Nouveau state

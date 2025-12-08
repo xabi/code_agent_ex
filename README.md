@@ -92,25 +92,18 @@ config = AgentConfig.new(
 
 ### Running Tests
 
-The project includes 9 basic tests:
+The project includes 11 basic tests (see `lib/code_agent_ex/iex_test.ex`):
 
 ```elixir
 # In IEx
 alias CodeAgentEx.IexTest
 
-# Run individual tests
-IexTest.test1()   # Simple arithmetic
-IexTest.test2()   # List manipulation
-IexTest.test3()   # Custom tools
-IexTest.test4()   # Conditional logic
-IexTest.test5()   # Multiple tools
-IexTest.test6()   # Data processing
-IexTest.test7()   # Data filtering
-IexTest.test8()   # Managed agents (hierarchical)
-IexTest.test9()   # AI-powered validation (requires HF_TOKEN)
-
 # Run all tests
 IexTest.test_all()
+
+# Run individual tests
+IexTest.test1()
+IexTest.test11()  # Reusable orchestrator pattern
 
 # Custom task
 IexTest.run("Calculate the sum of squares from 1 to 100")
@@ -132,10 +125,12 @@ CodeAgent.run(
 
 ### Example 2: Custom Tools
 
+Tools can be defined as either structs or plain maps. Maps are automatically converted to `Tool` structs:
+
 ```elixir
 alias CodeAgentEx.Tool
 
-# Define a custom tool
+# Option 1: Using Tool struct (explicit)
 user_data_tool = %Tool{
   name: :get_user_data,
   description: "Returns a map with user information including name, age, and test scores",
@@ -150,13 +145,23 @@ user_data_tool = %Tool{
   end
 }
 
+# Option 2: Using plain map (auto-converted)
+# This is the format used by external tool packages like code_agent_ex_tools
+weather_tool = %{
+  name: :get_weather,
+  description: "Returns the current weather for a city",
+  inputs: %{"city" => %{type: "string", description: "Name of the city"}},
+  output_type: "string",
+  function: fn city -> "Weather in #{city}: Sunny, 22°C" end
+}
+
 config = AgentConfig.new(
-  tools: [user_data_tool],
+  tools: [user_data_tool, weather_tool],  # Mix structs and maps
   max_steps: 5
 )
 
 CodeAgent.run(
-  "Get the user data and calculate their average test score",
+  "Get the user data and calculate their average test score. Also check the weather in Paris.",
   config
 )
 ```
@@ -185,6 +190,41 @@ CodeAgent.run(
   config
 )
 ```
+
+### Example 4: Reusable Orchestrator (Multiple Questions)
+
+Use the same orchestrator to ask multiple questions while maintaining context:
+
+```elixir
+alias CodeAgentEx.{AgentConfig, AgentOrchestrator}
+
+# Define configuration once
+config = AgentConfig.new(
+  name: :assistant,
+  instructions: "You are a helpful data analyst",
+  tools: [my_data_tool],
+  max_steps: 8
+)
+
+# Start orchestrator once and reuse for multiple tasks
+with {:ok, orch} <- AgentOrchestrator.start_link(config),
+     {:ok, answer1} <- AgentOrchestrator.run_task(orch, "What is the average salary?"),
+     {:ok, answer2} <- AgentOrchestrator.run_task(orch, "How many employees in Engineering?"),
+     {:ok, answer3} <- AgentOrchestrator.run_task(orch, "Who has the highest salary?") do
+
+  IO.puts("1. #{answer1}")
+  IO.puts("2. #{answer2}")
+  IO.puts("3. #{answer3}")
+
+  AgentOrchestrator.stop(orch)
+end
+```
+
+**Benefits:**
+- State and memory persist between questions
+- Efficient: LLM context is maintained
+- Clean: Use `with` to chain multiple tasks
+- See `IexTest.test11()` for a complete example
 
 ## 🏛️ Architecture
 
