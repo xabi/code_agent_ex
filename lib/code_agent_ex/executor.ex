@@ -1,66 +1,66 @@
 defmodule CodeAgentEx.Executor do
   @moduledoc """
-  Exécuteur de code Elixir pour le CodeAgent.
+  Elixir code executor for CodeAgent.
 
-  Utilise Code.eval_string pour l'exécution du code généré par le LLM.
-  Inspiré de smolagents' local_python_executor.py.
+  Uses Code.eval_string to execute LLM-generated code.
+  Inspired by smolagents' local_python_executor.py.
 
-  ## Utilisation
+  ## Usage
 
       Executor.execute_sandboxed(code, binding)
 
-  Le code est exécuté avec accès aux tools via le binding.
+  Code is executed with access to tools via the binding.
   """
 
   require Logger
 
   @doc """
-  Exécute du code Elixir avec Code.eval_string.
+  Executes Elixir code with Code.eval_string.
 
-  Inspiré de smolagents' evaluate_python_code() qui utilise un AST walker.
-  Ici on utilise Code.eval_string avec un binding préparé contenant tous les tools.
+  Inspired by smolagents' evaluate_python_code() which uses an AST walker.
+  Here we use Code.eval_string with a prepared binding containing all tools.
 
-  ## Exemple de code attendu
+  ## Expected code example
 
       result = 25 * 4
       result = result + 10
       final_answer.(result)
 
-  ## Paramètres
+  ## Parameters
 
-  - `code` - Le code Elixir à exécuter
-  - `binding` - Keyword list contenant les tools disponibles
+  - `code` - The Elixir code to execute
+  - `binding` - Keyword list containing available tools
 
-  ## Retourne
+  ## Returns
 
-  - `{:ok, result, updated_binding}` - Exécution réussie avec binding mis à jour
-  - `{:error, reason}` - Erreur d'exécution
+  - `{:ok, result, updated_binding}` - Successful execution with updated binding
+  - `{:error, reason}` - Execution error
 
   ## Final Answer
 
-  Le binding est mis à jour avec `__final_answer__` uniquement si le code
-  appelle `final_answer/1`, qui fait un `throw({:final_answer, value})`.
-  Comme dans smolagents avec FinalAnswerException.
+  The binding is updated with `__final_answer__` only if the code
+  calls `final_answer/1`, which throws `{:final_answer, value}`.
+  Like in smolagents with FinalAnswerException.
   """
   def execute_sandboxed(code, binding) do
     Logger.debug("🔒 [Executor] Executing code:\n#{code}")
 
-    # Si le code utilise final_answer.( sans le préfixe tools., ajouter une ligne pour le définir
+    # If code uses final_answer.( without tools. prefix, add a binding line for it
     code = maybe_add_final_answer_binding(code)
 
-    # Préparer le binding pour Code.eval_string
-    # Réutiliser les bindings précédents (variables définies dans les steps précédents)
+    # Prepare binding for Code.eval_string
+    # Reuse previous bindings (variables defined in previous steps)
     eval_binding = prepare_binding(binding)
 
-    # Exécuter avec Code.eval_string (avec gestion du throw pour final_answer)
+    # Execute with Code.eval_string (with throw handling for final_answer)
     try do
       {result, new_binding} = Code.eval_string(code, eval_binding)
 
-      # Convertir les tuples {:image, path}, {:video, path}, {:audio, path} en AgentTypes
+      # Convert tuples {:image, path}, {:video, path}, {:audio, path} to AgentTypes
       converted_result = CodeAgentEx.AgentTypes.from_tuple(result)
 
-      # Mettre à jour le binding avec les nouvelles variables créées
-      # Cela permet de réutiliser les variables d'un step à l'autre
+      # Update binding with newly created variables
+      # This allows variables to be reused from one step to another
       updated_binding = merge_bindings(binding, new_binding)
 
       {:ok, converted_result, updated_binding}
@@ -70,54 +70,54 @@ defmodule CodeAgentEx.Executor do
         {:error, Exception.message(e)}
     catch
       :throw, {:final_answer, answer} ->
-        # Capturer le throw de final_answer (comme FinalAnswerException dans smolagents)
-        # Convertir les tuples en AgentTypes
+        # Capture final_answer throw (like FinalAnswerException in smolagents)
+        # Convert tuples to AgentTypes
         converted_answer = CodeAgentEx.AgentTypes.from_tuple(answer)
-        # Marquer le binding comme contenant une final_answer
+        # Mark binding as containing a final_answer
         updated_binding = Map.put(binding, :__final_answer__, converted_answer)
 
         {:ok, converted_answer, updated_binding}
     end
   end
 
-  # Ajoute automatiquement `final_answer = tools.final_answer` si le code utilise
-  # final_answer.( sans le préfixe tools.
+  # Automatically adds `final_answer = tools.final_answer` if code uses
+  # final_answer.( without the tools. prefix
   defp maybe_add_final_answer_binding(code) do
-    # Détecter si le code appelle final_answer.( sans le préfixe tools.
+    # Detect if code calls final_answer.( without the tools. prefix
     has_final_answer = String.contains?(code, "final_answer.(")
     has_tools_prefix = String.contains?(code, "tools.final_answer.(")
 
     if has_final_answer and not has_tools_prefix do
-      # Ajouter la ligne au début
+      # Add line at the beginning
       "final_answer = tools.final_answer\n" <> code
     else
       code
     end
   end
 
-  # Prépare le binding pour Code.eval_string
-  # On passe les tools ET les variables des steps précédents
+  # Prepares binding for Code.eval_string
+  # We pass both tools AND variables from previous steps
   defp prepare_binding(binding) when is_map(binding) do
-    # Récupérer les variables définies dans les steps précédents
+    # Get variables defined in previous steps
     previous_vars = Map.get(binding, :__vars__, [])
 
-    # Combiner tools, agents et variables précédentes
+    # Combine tools, agents and previous variables
     [
       tools: Map.get(binding, :tools, %{}),
       agents: Map.get(binding, :agents, %{})
     ] ++ previous_vars
   end
 
-  # Fusionne les bindings: garde tools/agents, ajoute les nouvelles variables
+  # Merges bindings: keeps tools/agents, adds new variables
   defp merge_bindings(original_binding, new_binding) when is_map(original_binding) do
-    # Filtrer pour garder uniquement les variables utilisateur (pas tools/agents)
+    # Filter to keep only user variables (not tools/agents)
     user_vars =
       new_binding
       |> Enum.filter(fn {key, _} ->
         key not in [:tools, :agents]
       end)
 
-    # Mettre à jour le binding original avec les nouvelles variables
+    # Update original binding with new variables
     original_binding
     |> Map.put(:__vars__, user_vars)
   end

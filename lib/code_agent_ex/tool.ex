@@ -1,17 +1,17 @@
 defmodule CodeAgentEx.Tool do
   @moduledoc """
-  Définition des tools pour le CodeAgent.
+  Tool definitions for CodeAgent.
 
-  Un tool est une fonction que l'agent peut appeler dans son code généré.
-  Les tools sont injectés dans le binding lors de l'exécution.
+  A tool is a function that the agent can call in its generated code.
+  Tools are injected into the binding during execution.
 
-  ## Structure d'un tool
+  ## Tool structure
 
       %Tool{
         name: :calculator,
-        description: "Effectue des calculs mathématiques",
+        description: "Performs mathematical calculations",
         inputs: %{
-          "expression" => %{type: "string", description: "Expression mathématique"}
+          "expression" => %{type: "string", description: "Mathematical expression"}
         },
         output_type: "number",
         function: fn expression -> ... end
@@ -21,22 +21,21 @@ defmodule CodeAgentEx.Tool do
   defstruct [:name, :description, :inputs, :output_type, :function]
 
   @doc """
-  Crée un binding Elixir avec tous les tools disponibles.
+  Creates an Elixir binding with all available tools.
 
-  Chaque tool devient une fonction dans le binding que le code peut appeler.
-  Les noms des tools doivent être des atoms.
+  Each tool becomes a function in the binding that code can call.
+  Tool names must be atoms.
   """
   def create_binding(tools) do
     tools
     |> Enum.map(fn tool ->
-      # Le nom doit déjà être un atom
       {tool.name, tool.function}
     end)
     |> Keyword.new()
   end
 
   @doc """
-  Génère la documentation des tools pour le prompt système.
+  Generates tools documentation for the system prompt.
   """
   def tools_documentation(tools) do
     tools
@@ -65,10 +64,10 @@ defmodule CodeAgentEx.Tool do
     """
   end
 
-  # ==================== TOOLS PRÉDÉFINIS ====================
+  # ==================== PREDEFINED TOOLS ====================
 
   @doc """
-  Tool obligatoire pour terminer l'exécution avec une réponse.
+  Required tool to terminate execution with an answer.
   """
   def final_answer do
     %__MODULE__{
@@ -80,14 +79,14 @@ defmodule CodeAgentEx.Tool do
       },
       output_type: "any",
       function: fn answer ->
-        # Marque spéciale pour signaler la fin
+        # Special marker to signal completion
         throw({:final_answer, answer})
       end
     }
   end
 
   @doc """
-  Tool pour lire un fichier.
+  Tool to read a file.
   """
   def read_file do
     %__MODULE__{
@@ -107,7 +106,7 @@ defmodule CodeAgentEx.Tool do
   end
 
   @doc """
-  Tool pour écrire dans un fichier.
+  Tool to write to a file.
   """
   def write_file do
     %__MODULE__{
@@ -128,7 +127,7 @@ defmodule CodeAgentEx.Tool do
   end
 
   @doc """
-  Tool pour exécuter une commande shell.
+  Tool to execute a shell command.
   """
   def shell_command do
     %__MODULE__{
@@ -148,7 +147,7 @@ defmodule CodeAgentEx.Tool do
   end
 
   @doc """
-  Tool pour faire une requête HTTP GET.
+  Tool to make an HTTP GET request.
   """
   def http_get do
     %__MODULE__{
@@ -174,7 +173,7 @@ defmodule CodeAgentEx.Tool do
   end
 
   @doc """
-  Tool pour afficher/logger une valeur (utile pour debug).
+  Tool to display/log a value (useful for debugging).
   """
   def print do
     %__MODULE__{

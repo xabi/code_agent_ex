@@ -1,11 +1,11 @@
 defmodule CodeAgentEx.CodeAgent do
   @moduledoc """
-  Agent qui génère et exécute du code Elixir pour accomplir des tâches.
+  Agent that generates and executes Elixir code to accomplish tasks.
 
-  Inspiré de smolagents CodeAgent - le LLM génère du code Elixir qui est
-  évalué avec persistance des variables entre les steps.
+  Inspired by smolagents CodeAgent - the LLM generates Elixir code which is
+  evaluated with variable persistence between steps.
 
-  ## Exemple
+  ## Example
 
       config = CodeAgentEx.AgentConfig.new(
         tools: [CodeAgentEx.Tool.final_answer()],
@@ -20,10 +20,10 @@ defmodule CodeAgentEx.CodeAgent do
 
   ## Architecture
 
-  - Boucle ReAct: Think → Code → Execute → Observe → Repeat
-  - Les variables Elixir persistent entre les steps
-  - Les tools sont des fonctions disponibles dans le binding
-  - `final_answer/1` termine l'exécution
+  - ReAct Loop: Think → Code → Execute → Observe → Repeat
+  - Elixir variables persist between steps
+  - Tools are functions available in the binding
+  - `final_answer/1` terminates execution
   """
 
   alias CodeAgentEx.{Executor, Memory, Prompts, Tool, AgentConfig, AgentOrchestrator}
@@ -31,19 +31,19 @@ defmodule CodeAgentEx.CodeAgent do
   require Logger
 
   defstruct [
-    # %AgentConfig{} - Configuration de l'agent
+    # %AgentConfig{} - Agent configuration
     :config,
-    # Tâche en cours
+    # Current task
     :task,
-    # Tools dérivés des managed_agents
+    # Tools derived from managed_agents
     :agent_tools,
-    # Historique d'exécution
+    # Execution history
     :memory,
-    # Variables Elixir en cours
+    # Current Elixir variables
     :binding,
-    # Étape actuelle
+    # Current step
     :current_step,
-    # Résultat final
+    # Final result
     :final_result
   ]
 
@@ -86,7 +86,7 @@ defmodule CodeAgentEx.CodeAgent do
   directly for more control.
   """
   def run(task, %AgentConfig{} = config, opts \\ []) do
-    # Utiliser l'orchestrator pour toutes les exécutions
+    # Use orchestrator for all executions
     run_with_orchestrator(task, config, opts)
   end
 
@@ -108,10 +108,10 @@ defmodule CodeAgentEx.CodeAgent do
   end
 
   def run_direct(task, %AgentConfig{} = config, previous_state \\ nil) do
-    # Créer ou réutiliser le state
+    # Create or reuse state
     state =
       if previous_state do
-        # Continuer avec l'état précédent (mémoire préservée)
+        # Continue with previous state (memory preserved)
         Logger.info(
           "🔄 [CodeAgent] Continuing from previous state (#{Memory.count(previous_state.memory)} steps)"
         )
@@ -127,7 +127,7 @@ defmodule CodeAgentEx.CodeAgent do
             binding: cleaned_binding
         }
       else
-        # Nouveau state
+        # New state
         tools = ensure_final_answer(config.tools)
         agent_tools = AgentConfig.to_tools(config.managed_agents, config.listener_pid)
 
@@ -135,7 +135,7 @@ defmodule CodeAgentEx.CodeAgent do
           "🤖 [CodeAgent] Starting '#{config.name}' with #{length(tools)} tools + #{length(agent_tools)} agents"
         )
 
-        # Créer le binding avec tools.* et agents.*
+        # Create binding with tools.* and agents.*
         binding = create_combined_binding(tools, agent_tools)
 
         %__MODULE__{
@@ -173,22 +173,22 @@ defmodule CodeAgentEx.CodeAgent do
     # Construire les messages pour le LLM
     messages = build_messages(state)
 
-    # Détecter si c'est la dernière étape (pour appliquer response_schema custom)
+    # Detect if this is the final step (to apply custom response_schema)
     is_final_step = step >= state.config.max_steps
 
-    # Définir le response_schema approprié
+    # Define appropriate response_schema
     response_schema =
       cond do
-        # Dernière étape avec response_schema custom
+        # Final step with custom response_schema
         is_final_step && state.config.response_schema ->
           state.config.response_schema
 
-        # Étapes intermédiaires : schema pour code generation
+        # Intermediate steps: schema for code generation
         true ->
           Schemas.CodeStep
       end
 
-    # Appeler le LLM avec le schema approprié
+    # Call LLM with appropriate schema
     # Merge adapter into llm_opts
     llm_opts = Keyword.put(state.config.llm_opts, :adapter, state.config.adapter)
     case call_llm(state.config.model, messages, response_schema, llm_opts) do
@@ -240,7 +240,7 @@ defmodule CodeAgentEx.CodeAgent do
       {:ok, result, new_binding} ->
         Logger.info("✅ [CodeAgent] Code executed successfully")
 
-        # Vérifier si c'est une réponse finale
+        # Check if this is a final answer
         case check_final_answer(result, new_binding) do
           {:final, answer} ->
             step_record = %{
@@ -301,17 +301,17 @@ defmodule CodeAgentEx.CodeAgent do
   @doc """
   Continue execution after user validation.
 
-  ## Décisions possibles
+  ## Possible decisions
 
-  - `:approve` - Exécuter le code tel quel
-  - `{:modify, new_code}` - Exécuter le code modifié
-  - `{:feedback, message}` - Renvoyer au LLM avec feedback
-  - `:reject` - Arrêter l'exécution
+  - `:approve` - Execute code as-is
+  - `{:modify, new_code}` - Execute modified code
+  - `{:feedback, message}` - Send back to LLM with feedback
+  - `:reject` - Stop execution
   """
   def continue_validation(decision, {thought, code, state}) do
     step = state.current_step
 
-    # Gestion de la décision de validation
+    # Handle validation decision
     case decision do
       :approve ->
         execute_code(code, thought, step, state)
@@ -323,7 +323,7 @@ defmodule CodeAgentEx.CodeAgent do
       {:feedback, message} ->
         Logger.info("💬 [CodeAgent] User feedback: #{String.slice(message, 0, 50)}...")
 
-        # Ajouter le feedback comme erreur pour que le LLM réessaie
+        # Add feedback as error so LLM retries
         step_record = %{
           step: step,
           thought: thought,

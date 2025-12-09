@@ -61,7 +61,7 @@ defmodule CodeAgentEx.AgentConfig do
   @default_model "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 
   @default_max_steps 10
-  # Désactiver tool calling natif
+  # Disable native tool calling
   @default_llm_opts [tool_choice: "none", temperature: 0.7, max_tokens: 4000]
   @default_adapter InstructorLite.Adapters.ChatCompletionsCompatible
 

@@ -1,9 +1,9 @@
 defmodule CodeAgentEx.Memory do
   @moduledoc """
-  Gestion de la mémoire du CodeAgent.
+  CodeAgent memory management.
 
-  Stocke l'historique des steps (thought, code, result, errors)
-  et les convertit en messages pour le LLM.
+  Stores the history of steps (thought, code, result, errors)
+  and converts them to messages for the LLM.
   """
 
   alias CodeAgentEx.AgentTypes
@@ -11,7 +11,7 @@ defmodule CodeAgentEx.Memory do
   defstruct steps: []
 
   @doc """
-  Crée une nouvelle mémoire vide.
+  Creates a new empty memory.
   """
   def new do
     %__MODULE__{steps: []}
@@ -105,12 +105,12 @@ defmodule CodeAgentEx.Memory do
   end
 
   @doc """
-  Retourne le nombre de steps.
+  Returns the number of steps.
   """
   def count(%__MODULE__{steps: steps}), do: length(steps)
 
   @doc """
-  Retourne le dernier step.
+  Returns the last step.
   """
   def last_step(%__MODULE__{steps: []}), do: nil
   def last_step(%__MODULE__{steps: steps}), do: List.last(steps)

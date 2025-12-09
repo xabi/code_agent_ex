@@ -8,7 +8,7 @@ defmodule CodeAgentEx.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # HTTP client pool pour les requêtes API (Moondream, etc.)
+      # HTTP client pool for API requests (Moondream, etc.)
       {Finch, name: CodeAgentEx.Finch},
       # DynamicSupervisor for managing agent processes
       CodeAgentEx.AgentSupervisor

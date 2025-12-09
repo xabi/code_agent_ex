@@ -1,12 +1,12 @@
 defmodule CodeAgentEx.Prompts do
   @moduledoc """
-  Prompts système pour le CodeAgent.
+  System prompts for CodeAgent.
   """
 
   alias CodeAgentEx.Tool
 
   @doc """
-  Génère le prompt pour la tâche.
+  Generates the prompt for the task.
   """
   def task_prompt(task) do
     """
@@ -20,9 +20,9 @@ defmodule CodeAgentEx.Prompts do
   end
 
   @doc """
-  Génère le prompt système pour le CodeAgent.
+  Generates the system prompt for CodeAgent.
 
-  Utilise MiniElixir pour une exécution sécurisée (sandbox).
+  Uses Code.eval_string for code execution.
   """
   def system_prompt(tools, agent_tools \\ [], instructions \\ nil) do
     tools_doc = Tool.tools_documentation(tools)

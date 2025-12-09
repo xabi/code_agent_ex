@@ -1,26 +1,26 @@
 defmodule CodeAgentEx.AgentTypes do
   @moduledoc """
-  Types spéciaux pour les données binaires (images, audio) dans le CodeAgent.
+  Special types for binary data (images, audio) in CodeAgent.
 
-  Ces types permettent de passer des fichiers binaires entre les tools et le code généré
-  en utilisant des paths comme référence.
+  These types allow passing binary files between tools and generated code
+  using paths as references.
 
-  Les fichiers sont sauvegardés dans un sous-dossier `code_agent` de tmp.
+  Files are saved in a `code_agent` subfolder of tmp.
 
-  ## Exemple
+  ## Example
 
-      # Un tool retourne une image
+      # A tool returns an image
       image = AgentImage.from_binary(png_data, "png")
 
-      # Dans le binding, l'image est accessible via son path
-      # Le LLM peut faire: result = process_image.(image_path)
+      # In the binding, the image is accessible via its path
+      # The LLM can do: result = process_image.(image_path)
   """
 
   @agent_tmp_dir "code_agent"
 
   @doc """
-  Retourne le dossier temporaire pour les fichiers de l'agent.
-  Crée le dossier s'il n'existe pas.
+  Returns the temporary directory for agent files.
+  Creates the directory if it doesn't exist.
   """
   def tmp_dir do
     dir = Path.join(System.tmp_dir!(), @agent_tmp_dir)
@@ -30,13 +30,13 @@ defmodule CodeAgentEx.AgentTypes do
 
   defmodule AgentImage do
     @moduledoc """
-    Type pour les images. Encapsule une image et la rend accessible via un path.
+    Type for images. Encapsulates an image and makes it accessible via a path.
     """
 
     defstruct [:path, :binary, :format, :width, :height]
 
     @doc """
-    Crée une AgentImage depuis un path existant.
+    Creates an AgentImage from an existing path.
     """
     def from_path(path) when is_binary(path) do
       if File.exists?(path) do
@@ -47,7 +47,7 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Crée une AgentImage depuis des données binaires.
+    Creates an AgentImage from binary data.
     """
     def from_binary(data, format \\ "png") when is_binary(data) do
       filename = "agent_image_#{:erlang.unique_integer([:positive])}.#{format}"
@@ -63,14 +63,14 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Crée une AgentImage depuis une URL (télécharge l'image).
+    Creates an AgentImage from a URL (downloads the image).
     """
     def from_url(url) when is_list(url), do: from_url(List.to_string(url))
 
     def from_url(url) when is_binary(url) do
       case Req.get(url) do
         {:ok, %{status: status, body: body}} when status in 200..299 ->
-          # Deviner le format depuis l'URL ou Content-Type
+          # Guess format from URL or Content-Type
           format =
             url
             |> URI.parse()
@@ -93,12 +93,12 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Retourne le path de l'image (pour utilisation dans le code généré).
+    Returns the image path (for use in generated code).
     """
     def to_string(%__MODULE__{path: path}), do: path
 
     @doc """
-    Retourne les données binaires de l'image.
+    Returns the image binary data.
     """
     def to_binary(%__MODULE__{binary: nil, path: path}) do
       File.read!(path)
@@ -107,7 +107,7 @@ defmodule CodeAgentEx.AgentTypes do
     def to_binary(%__MODULE__{binary: binary}), do: binary
 
     @doc """
-    Nettoie le fichier temporaire.
+    Cleans up the temporary file.
     """
     def cleanup(%__MODULE__{path: path}) do
       if path && String.starts_with?(path, CodeAgentEx.AgentTypes.tmp_dir()) do
@@ -118,13 +118,13 @@ defmodule CodeAgentEx.AgentTypes do
 
   defmodule AgentAudio do
     @moduledoc """
-    Type pour les fichiers audio.
+    Type for audio files.
     """
 
     defstruct [:path, :binary, :format, :samplerate, :duration]
 
     @doc """
-    Crée un AgentAudio depuis un path existant.
+    Creates an AgentAudio from an existing path.
     """
     def from_path(path, opts \\ []) when is_binary(path) do
       if File.exists?(path) do
@@ -139,7 +139,7 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Crée un AgentAudio depuis des données binaires.
+    Creates an AgentAudio from binary data.
     """
     def from_binary(data, format \\ "wav", opts \\ []) when is_binary(data) do
       filename = "agent_audio_#{:erlang.unique_integer([:positive])}.#{format}"
@@ -160,12 +160,12 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Retourne le path de l'audio.
+    Returns the audio path.
     """
     def to_string(%__MODULE__{path: path}), do: path
 
     @doc """
-    Retourne les données binaires.
+    Returns the binary data.
     """
     def to_binary(%__MODULE__{binary: nil, path: path}) do
       File.read!(path)
@@ -174,7 +174,7 @@ defmodule CodeAgentEx.AgentTypes do
     def to_binary(%__MODULE__{binary: binary}), do: binary
 
     @doc """
-    Nettoie le fichier temporaire.
+    Cleans up the temporary file.
     """
     def cleanup(%__MODULE__{path: path}) do
       if path && String.starts_with?(path, CodeAgentEx.AgentTypes.tmp_dir()) do
@@ -185,13 +185,13 @@ defmodule CodeAgentEx.AgentTypes do
 
   defmodule AgentVideo do
     @moduledoc """
-    Type pour les vidéos. Encapsule une vidéo et la rend accessible via un path.
+    Type for videos. Encapsulates a video and makes it accessible via a path.
     """
 
     defstruct [:path, :binary, :format, :duration, :width, :height]
 
     @doc """
-    Crée un AgentVideo depuis un path existant.
+    Creates an AgentVideo from an existing path.
     """
     def from_path(path, opts \\ []) when is_binary(path) do
       if File.exists?(path) do
@@ -208,7 +208,7 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Crée un AgentVideo depuis des données binaires.
+    Creates an AgentVideo from binary data.
     """
     def from_binary(data, format \\ "mp4", opts \\ []) when is_binary(data) do
       filename = "agent_video_#{:erlang.unique_integer([:positive])}.#{format}"
@@ -231,12 +231,12 @@ defmodule CodeAgentEx.AgentTypes do
     end
 
     @doc """
-    Retourne le path de la vidéo.
+    Returns the video path.
     """
     def to_string(%__MODULE__{path: path}), do: path
 
     @doc """
-    Retourne les données binaires.
+    Returns the binary data.
     """
     def to_binary(%__MODULE__{binary: nil, path: path}) do
       File.read!(path)
@@ -245,7 +245,7 @@ defmodule CodeAgentEx.AgentTypes do
     def to_binary(%__MODULE__{binary: binary}), do: binary
 
     @doc """
-    Nettoie le fichier temporaire.
+    Cleans up the temporary file.
     """
     def cleanup(%__MODULE__{path: path}) do
       if path && String.starts_with?(path, CodeAgentEx.AgentTypes.tmp_dir()) do
