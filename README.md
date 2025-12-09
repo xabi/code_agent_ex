@@ -2,7 +2,7 @@
 
 > A code-generating agent framework for Elixir, inspired by [smolagents](https://github.com/huggingface/smolagents)
 
-CodeAgentEx is a lightweight implementation of an agentic AI system that **writes and executes Elixir code** to solve tasks. Using a ReAct (Reasoning + Acting) loop, the agent iteratively generates code, executes it in a sandbox, and uses the results to progress toward a solution.
+CodeAgentEx is a lightweight implementation of an agentic AI system that **writes and executes Elixir code** to solve tasks. Using a ReAct (Reasoning + Acting) loop, the agent iteratively generates code, executes it, and uses the results to progress toward a solution.
 
 ## ✨ Features
 
@@ -22,11 +22,6 @@ CodeAgentEx is a lightweight implementation of an agentic AI system that **write
 - **Nested Delegation**: Sub-agents can have their own sub-agents
 - **Capability Discovery**: Explicit instructions help agents discover each other's capabilities
 
-### 🔒 Safe Execution
-- **Sandboxed**: Code runs via `Code.eval_string` with restricted access
-- **Whitelisted Modules**: Only safe modules (Map, String, Enum, etc.) are available
-- **No Filesystem/Network**: External operations only through tools
-
 ## 🚀 Quick Start
 
 ### Installation
@@ -44,8 +39,6 @@ mix compile
 ```
 
 ### Configuration
-
-CodeAgentEx is a **library**, not an application. It does not impose configuration on your project.
 
 **Option 1: Pass API keys directly to functions**
 
@@ -379,12 +372,20 @@ CodeAgentEx core has **minimal dependencies**:
 
 That's it! No Python, no external services, just pure Elixir.
 
+## 📋 TODO
+
+### 🔒 Security & Sandboxing
+Currently, code executes via `Code.eval_string` **without any restrictions**:
+- ⚠️ Agent-generated code has full access to filesystem, network, and all Elixir modules
+- ⚠️ **Do not run untrusted tasks without proper safeguards**
+- TODO: Implement AST-based sandboxing with module whitelisting (like smolagents)
+- TODO: Add resource limits (timeouts, memory constraints)
+
 ## 🤝 Contributing
 
 Contributions are welcome! Areas for improvement:
 
 - Additional tools (filesystem, database, etc.)
-- More LLM providers
 - Streaming support for real-time output
 - Better error handling and recovery
 - Performance optimizations
