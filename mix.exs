@@ -25,7 +25,8 @@ defmodule CodeAgentEx.MixProject do
       # LLM client with structured outputs
       {:instructor_lite, "~> 1.1.2"},
       {:req, "~> 0.5"},
-      {:jason, "~> 1.2"}
+      {:jason, "~> 1.2"},
+      {:nimble_options, "~> 1.1"}
 
       # Code execution sandbox (not used for now, using Code.eval_string instead)
       # {:mini_elixir, github: "sequinstream/mini_elixir"}

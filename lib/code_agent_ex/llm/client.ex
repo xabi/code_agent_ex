@@ -13,6 +13,40 @@ defmodule CodeAgentEx.LLM.Client do
   require Logger
   alias CodeAgentEx.LLM.Schemas
 
+  @known_options [:api_key, :base_url, :adapter, :adapter_context, :receive_timeout, :http_options]
+
+  @completion_schema NimbleOptions.new!(
+    api_key: [
+      type: :string,
+      doc: "API key (defaults to HF_TOKEN or OPENAI_API_KEY env var)"
+    ],
+    base_url: [
+      type: :string,
+      default: "https://router.huggingface.co/v1",
+      doc: "Base URL for the API"
+    ],
+    adapter: [
+      type: :atom,
+      default: InstructorLite.Adapters.ChatCompletionsCompatible,
+      doc: "InstructorLite adapter module"
+    ],
+    adapter_context: [
+      type: :keyword_list,
+      default: [],
+      doc: "Additional adapter context options (merged with default context)"
+    ],
+    receive_timeout: [
+      type: :integer,
+      default: 120_000,
+      doc: "Request timeout in milliseconds"
+    ],
+    http_options: [
+      type: :keyword_list,
+      default: [],
+      doc: "Additional HTTP options"
+    ]
+  )
+
   @doc """
   Performs a structured chat completion using InstructorLite.
 
@@ -25,13 +59,7 @@ defmodule CodeAgentEx.LLM.Client do
 
   ## Options
 
-  - `:api_key` - API key (defaults to HF_TOKEN or OPENAI_API_KEY env var)
-  - `:base_url` - Base URL for the API (default: "https://router.huggingface.co/v1")
-  - `:adapter` - InstructorLite adapter module (default: InstructorLite.Adapters.ChatCompletionsCompatible)
-  - `:adapter_context` - Additional adapter context options (merged with default context)
-  - `:receive_timeout` - Request timeout in ms (default: 120_000)
-  - `:http_options` - Additional HTTP options
-  - Any other InstructorLite options
+  #{NimbleOptions.docs(@completion_schema)}
 
   ## Returns
 
@@ -50,11 +78,16 @@ defmodule CodeAgentEx.LLM.Client do
       {:ok, %Schemas.TextResponse{answer: "15"}}
   """
   def chat_completion(model, messages, response_schema, opts \\ []) do
+    # Split options: known ones to validate, unknown ones to pass through
+    {known_opts, unknown_opts} = Keyword.split(opts, @known_options)
+
+    validated_opts = NimbleOptions.validate!(known_opts, @completion_schema)
+
     # Extract configuration options
-    api_key = Keyword.get(opts, :api_key) || System.get_env("HF_TOKEN") || System.get_env("OPENAI_API_KEY")
-    base_url = Keyword.get(opts, :base_url, "https://router.huggingface.co/v1")
-    adapter = Keyword.get(opts, :adapter, InstructorLite.Adapters.ChatCompletionsCompatible)
-    receive_timeout = Keyword.get(opts, :receive_timeout, 120_000)
+    api_key = validated_opts[:api_key] || System.get_env("HF_TOKEN") || System.get_env("OPENAI_API_KEY")
+    base_url = validated_opts[:base_url]
+    adapter = validated_opts[:adapter]
+    receive_timeout = validated_opts[:receive_timeout]
 
     if is_nil(api_key) or api_key == "" do
       {:error, "API key required (HF_TOKEN, OPENAI_API_KEY, or :api_key option)"}
@@ -62,20 +95,29 @@ defmodule CodeAgentEx.LLM.Client do
       Logger.debug("LLM Client: calling #{model} at #{base_url} with adapter #{inspect(adapter)} and schema #{inspect(response_schema)}")
 
       # Prepare params for InstructorLite
-      params = %{
-        model: model,
-        messages: messages
-      }
+      # Include base params + any additional API options (temperature, max_tokens, etc.)
+      params =
+        unknown_opts
+        |> Enum.into(%{})
+        |> Map.merge(%{
+          model: model,
+          messages: messages
+        })
 
       # Build default adapter context
+      http_options_with_timeout = Keyword.merge(
+        validated_opts[:http_options],
+        [receive_timeout: receive_timeout]
+      )
+
       default_context = [
         api_key: api_key,
         url: "#{base_url}/chat/completions",
-        http_options: Keyword.get(opts, :http_options, [receive_timeout: receive_timeout])
+        http_options: http_options_with_timeout
       ]
 
       # Merge with custom adapter_context if provided
-      adapter_context = Keyword.merge(default_context, Keyword.get(opts, :adapter_context, []))
+      adapter_context = Keyword.merge(default_context, validated_opts[:adapter_context])
 
       # Call InstructorLite with configurable adapter
       result =

@@ -80,18 +80,48 @@ defmodule CodeAgentEx.AIValidator do
     """
   end
 
+  @handler_schema NimbleOptions.new!(
+    model: [
+      type: :string,
+      default: "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+      doc: "Model to use for validation"
+    ],
+    adapter: [
+      type: :atom,
+      default: InstructorLite.Adapters.ChatCompletionsCompatible,
+      doc: "InstructorLite adapter module"
+    ],
+    api_key: [
+      type: :string,
+      doc: "API key (defaults to HF_TOKEN or OPENAI_API_KEY env var)"
+    ],
+    base_url: [
+      type: :string,
+      doc: "Base URL for the API"
+    ],
+    auto_approve_threshold: [
+      type: :integer,
+      default: 80,
+      doc: "Auto-approve if safety_score >= this value"
+    ],
+    verbose: [
+      type: :boolean,
+      default: false,
+      doc: "Show detailed validation info"
+    ],
+    prompt_fn: [
+      type: {:fun, 1},
+      default: &__MODULE__.default_prompt_fn/1,
+      doc: "Custom prompt function (receives map with :thought, :code, :agent_name)"
+    ]
+  )
+
   @doc """
   Creates a validation handler function that uses AI to validate code.
 
   ## Options
-  - `:model` - Model to use (default: "Qwen/Qwen3-Coder-30B-A3B-Instruct")
-  - `:adapter` - InstructorLite adapter (default: InstructorLite.Adapters.ChatCompletionsCompatible)
-  - `:api_key` - API key (default: from HF_TOKEN or OPENAI_API_KEY env var)
-  - `:base_url` - Base URL for the API (default: "https://router.huggingface.co/v1")
-  - `:auto_approve_threshold` - Auto-approve if safety_score >= this (default: 80)
-  - `:verbose` - Show detailed validation info (default: false)
-  - `:prompt_fn` - Custom prompt function (default: `&default_prompt_fn/1`)
-    Function receives a map with :thought, :code, :agent_name and returns a string
+
+  #{NimbleOptions.docs(@handler_schema)}
 
   ## Example
 
@@ -105,13 +135,15 @@ defmodule CodeAgentEx.AIValidator do
       handler = AIValidator.create_handler(prompt_fn: custom_prompt_fn)
   """
   def create_handler(opts \\ []) do
-    model = Keyword.get(opts, :model, "Qwen/Qwen3-Coder-30B-A3B-Instruct")
-    adapter = Keyword.get(opts, :adapter, InstructorLite.Adapters.ChatCompletionsCompatible)
-    api_key = Keyword.get(opts, :api_key)
-    base_url = Keyword.get(opts, :base_url)
-    auto_approve_threshold = Keyword.get(opts, :auto_approve_threshold, 80)
-    verbose = Keyword.get(opts, :verbose, false)
-    prompt_fn = Keyword.get(opts, :prompt_fn, &default_prompt_fn/1)
+    validated_opts = NimbleOptions.validate!(opts, @handler_schema)
+
+    model = validated_opts[:model]
+    adapter = validated_opts[:adapter]
+    api_key = validated_opts[:api_key]
+    base_url = validated_opts[:base_url]
+    auto_approve_threshold = validated_opts[:auto_approve_threshold]
+    verbose = validated_opts[:verbose]
+    prompt_fn = validated_opts[:prompt_fn]
 
     fn validation_request ->
       validate_with_ai(validation_request, model, adapter, api_key, base_url, auto_approve_threshold, verbose, prompt_fn)

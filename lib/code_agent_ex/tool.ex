@@ -20,6 +20,65 @@ defmodule CodeAgentEx.Tool do
 
   defstruct [:name, :description, :inputs, :output_type, :function]
 
+  @tool_schema NimbleOptions.new!(
+    name: [
+      type: :atom,
+      required: true,
+      doc: "Tool name identifier (must be a valid Elixir atom)"
+    ],
+    description: [
+      type: :string,
+      required: true,
+      doc: "Description of what the tool does"
+    ],
+    inputs: [
+      type: :any,
+      required: true,
+      doc: "Map describing input parameters with their types and descriptions"
+    ],
+    output_type: [
+      type: :string,
+      required: true,
+      doc: "Description of the output type"
+    ],
+    function: [
+      type: {:custom, __MODULE__, :validate_function, []},
+      required: true,
+      doc: "The function to execute (can be any arity)"
+    ]
+  )
+
+  @doc false
+  def validate_function(value) do
+    if is_function(value) do
+      {:ok, value}
+    else
+      {:error, "expected a function, got: #{inspect(value)}"}
+    end
+  end
+
+  @doc """
+  Creates a new tool with validation.
+
+  ## Options
+
+  #{NimbleOptions.docs(@tool_schema)}
+
+  ## Example
+
+      Tool.new(
+        name: :calculator,
+        description: "Performs calculations",
+        inputs: %{"expr" => %{type: "string", description: "Math expression"}},
+        output_type: "number",
+        function: fn expr -> eval(expr) end
+      )
+  """
+  def new(opts) do
+    validated_opts = NimbleOptions.validate!(opts, @tool_schema)
+    struct!(__MODULE__, validated_opts)
+  end
+
   @doc """
   Creates an Elixir binding with all available tools.
 
@@ -81,6 +140,47 @@ defmodule CodeAgentEx.Tool do
       function: fn answer ->
         # Special marker to signal completion
         throw({:final_answer, answer})
+      end
+    }
+  end
+
+  @doc """
+  Tool to provide a final answer with media attachments (images, videos).
+
+  Example usage:
+    final_answer_with_media.(%{
+      text: "Here is the generated image",
+      images: ["/tmp/code_agent/image_123.png"]
+    })
+  """
+  def final_answer_with_media do
+    %__MODULE__{
+      name: :final_answer_with_media,
+      description: """
+      Provides the final answer with optional media attachments.
+      Use this when your answer includes images or other media files.
+
+      The parameter should be a map with:
+      - text: Your text answer
+      - images: List of image file paths (optional)
+      - videos: List of video file paths (optional)
+      """,
+      inputs: %{
+        "response" => %{
+          type: "map",
+          description: "Map with 'text' and optional 'images' or 'videos' keys"
+        }
+      },
+      output_type: "map",
+      function: fn response ->
+        # Normalize the response to ensure it has the right structure
+        normalized = %{
+          text: Map.get(response, "text") || Map.get(response, :text) || "",
+          images: Map.get(response, "images") || Map.get(response, :images) || [],
+          videos: Map.get(response, "videos") || Map.get(response, :videos) || []
+        }
+
+        throw({:final_answer, normalized})
       end
     }
   end
@@ -168,24 +268,6 @@ defmodule CodeAgentEx.Tool do
           {:error, reason} ->
             "Request failed: #{inspect(reason)}"
         end
-      end
-    }
-  end
-
-  @doc """
-  Tool to display/log a value (useful for debugging).
-  """
-  def print do
-    %__MODULE__{
-      name: :print,
-      description: "Prints a value to the output log.",
-      inputs: %{
-        "value" => %{type: "any", description: "Value to print"}
-      },
-      output_type: "nil",
-      function: fn value ->
-        IO.puts(inspect(value))
-        nil
       end
     }
   end

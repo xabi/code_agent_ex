@@ -161,6 +161,13 @@ defmodule CodeAgentEx.AgentOrchestrator do
   end
 
   @doc """
+  Gets the full state of the orchestrator for debugging/monitoring.
+  """
+  def get_state(orchestrator_pid) do
+    GenServer.call(orchestrator_pid, :get_state)
+  end
+
+  @doc """
   Registers a sub-agent and waits for its result.
 
   This is a synchronous call that blocks until the sub-agent completes.
@@ -348,6 +355,28 @@ defmodule CodeAgentEx.AgentOrchestrator do
     }
 
     {:reply, status_info, state}
+  end
+
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    # Return sanitized state for monitoring
+    state_info = %{
+      status: state.status,
+      agent_name: state.agent_config.name,
+      max_steps: state.agent_config.max_steps,
+      tools_count: length(state.agent_config.tools),
+      has_main_agent: state.main_agent_pid != nil,
+      main_agent_pid: state.main_agent_pid,
+      sub_agents_count: map_size(state.sub_agents),
+      sub_agents: state.sub_agents,
+      current_validation: state.current_validation,
+      has_result: state.result != nil,
+      has_error: state.error != nil,
+      error: state.error,
+      has_agent_state: state.agent_state != nil
+    }
+
+    {:reply, state_info, state}
   end
 
   @impl true

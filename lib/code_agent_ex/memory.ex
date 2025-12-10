@@ -6,7 +6,7 @@ defmodule CodeAgentEx.Memory do
   and converts them to messages for the LLM.
   """
 
-  alias CodeAgentEx.AgentTypes
+  alias CodeAgentEx.LLMFormattable
 
   defstruct steps: []
 
@@ -61,47 +61,45 @@ defmodule CodeAgentEx.Memory do
     end
   end
 
-  defp format_observation(step) do
-    cond do
-      Map.has_key?(step, :error) ->
+  defp format_observation(%{error: error}) do
+    """
+    **Observation (Error):**
+    ```
+    #{error}
+    ```
+
+    Please fix the error and try again.
+    """
+  end
+
+  defp format_observation(%{result: result} = step) do
+    output = Map.get(step, :output, "")
+
+    # Format result using LLMFormattable protocol
+    formatted_result = LLMFormattable.to_llm_string(result)
+
+    output_section =
+      if output != "" do
         """
-        **Observation (Error):**
+
+        **Output:**
         ```
-        #{step.error}
+        #{output}
         ```
-
-        Please fix the error and try again.
         """
+      else
+        ""
+      end
 
-      Map.has_key?(step, :result) ->
-        output = Map.get(step, :output, "")
-        result = step.result
+    """
+    **Observation:**
+    Result: #{inspect(formatted_result)}
+    #{output_section}
+    """
+  end
 
-        # Convert AgentTypes to their LLM representation (paths)
-        formatted_result = AgentTypes.to_llm_value(result)
-
-        output_section =
-          if output != "" do
-            """
-
-            **Output:**
-            ```
-            #{output}
-            ```
-            """
-          else
-            ""
-          end
-
-        """
-        **Observation:**
-        Result: #{inspect(formatted_result)}
-        #{output_section}
-        """
-
-      true ->
-        "**Observation:** No result"
-    end
+  defp format_observation(_step) do
+    "**Observation:** No result"
   end
 
   @doc """

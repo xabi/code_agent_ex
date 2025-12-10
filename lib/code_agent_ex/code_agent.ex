@@ -44,7 +44,11 @@ defmodule CodeAgentEx.CodeAgent do
     # Current step
     :current_step,
     # Final result
-    :final_result
+    :final_result,
+    # List of image paths generated during execution
+    generated_images: [],
+    # List of video paths generated during execution
+    generated_videos: []
   ]
 
   @doc """
@@ -124,7 +128,9 @@ defmodule CodeAgentEx.CodeAgent do
           | task: task,
             current_step: 0,
             final_result: nil,
-            binding: cleaned_binding
+            binding: cleaned_binding,
+            generated_images: [],
+            generated_videos: []
         }
       else
         # New state
@@ -240,8 +246,14 @@ defmodule CodeAgentEx.CodeAgent do
       {:ok, result, new_binding} ->
         Logger.info("✅ [CodeAgent] Code executed successfully")
 
+        # Track generated media (images and videos)
+        {new_generated_images, new_generated_videos} = extract_generated_media(result, state.generated_images, state.generated_videos)
+
+        # Update state with new media before checking final answer
+        state_with_media = %{state | generated_images: new_generated_images, generated_videos: new_generated_videos}
+
         # Check if this is a final answer
-        case check_final_answer(result, new_binding) do
+        case check_final_answer(result, new_binding, state_with_media) do
           {:final, answer} ->
             step_record = %{
               step: step,
@@ -255,7 +267,9 @@ defmodule CodeAgentEx.CodeAgent do
               | memory: Memory.add_step(state.memory, step_record),
                 binding: new_binding,
                 current_step: step,
-                final_result: answer
+                final_result: answer,
+                generated_images: new_generated_images,
+                generated_videos: new_generated_videos
             }
 
             execute_loop(new_state)
@@ -272,7 +286,9 @@ defmodule CodeAgentEx.CodeAgent do
               state
               | memory: Memory.add_step(state.memory, step_record),
                 binding: new_binding,
-                current_step: step
+                current_step: step,
+                generated_images: new_generated_images,
+                generated_videos: new_generated_videos
             }
 
             execute_loop(new_state)
@@ -366,12 +382,48 @@ defmodule CodeAgentEx.CodeAgent do
   # Note: parse_response is no longer needed as InstructorLite handles parsing
   # Keeping it for backward compatibility but it won't be called in the new flow
 
-  defp check_final_answer(_result, binding) do
+  defp check_final_answer(_result, binding, state) do
     # Check if __final_answer__ is in the binding
     case Map.get(binding, :__final_answer__) do
-      nil -> :continue
-      answer -> {:final, answer}
+      nil ->
+        :continue
+
+      answer when is_map(answer) ->
+        # If final answer is a map (from final_answer_with_media), merge generated media
+        merged_answer = merge_generated_media(answer, state)
+        {:final, merged_answer}
+
+      answer ->
+        # Simple string answer, wrap it with generated media if any
+        if Enum.empty?(state.generated_images) and Enum.empty?(state.generated_videos) do
+          {:final, answer}
+        else
+          {:final, %{
+            text: answer,
+            images: state.generated_images,
+            videos: state.generated_videos
+          }}
+        end
     end
+  end
+
+  # Merge generated media with the user-provided media in final answer
+  defp merge_generated_media(answer, state) do
+    # Get existing media from answer (keys are always atoms from final_answer_with_media)
+    existing_images = Map.get(answer, :images, [])
+    existing_videos = Map.get(answer, :videos, [])
+    text = Map.get(answer, :text, "")
+
+    # Merge with generated media (generated media first, then user-specified)
+    merged_images = (state.generated_images ++ existing_images) |> Enum.uniq()
+    merged_videos = (state.generated_videos ++ existing_videos) |> Enum.uniq()
+
+    # Return merged answer
+    %{
+      text: text,
+      images: merged_images,
+      videos: merged_videos
+    }
   end
 
   # Force a final answer when max_steps is reached
@@ -427,5 +479,22 @@ defmodule CodeAgentEx.CodeAgent do
       tools: tools_map,
       agents: agents_map
     }
+  end
+
+  # Extract media paths from execution result
+  # Handles {:image, path} and {:video, path} tuples and adds them to the lists
+  defp extract_generated_media(result, current_images, current_videos) do
+    case result do
+      {:image, path} when is_binary(path) ->
+        Logger.info("🖼️  [CodeAgent] Image generated: #{path}")
+        {[path | current_images] |> Enum.uniq(), current_videos}
+
+      {:video, path} when is_binary(path) ->
+        Logger.info("🎬 [CodeAgent] Video generated: #{path}")
+        {current_images, [path | current_videos] |> Enum.uniq()}
+
+      _ ->
+        {current_images, current_videos}
+    end
   end
 end

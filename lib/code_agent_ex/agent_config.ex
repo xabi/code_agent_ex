@@ -78,38 +78,84 @@ defmodule CodeAgentEx.AgentConfig do
     max_steps: @default_max_steps
   ]
 
+  @config_schema NimbleOptions.new!(
+    name: [
+      type: :atom,
+      default: :agent,
+      doc: "Agent name identifier"
+    ],
+    instructions: [
+      type: :string,
+      doc: "Instructions describing the agent's role and behavior"
+    ],
+    tools: [
+      type: :any,
+      default: [],
+      doc: "List of tools (Tool structs or maps with :name, :description, :inputs, :output_type, :function)"
+    ],
+    managed_agents: [
+      type: :any,
+      default: [],
+      doc: "List of sub-agent configurations this agent can use"
+    ],
+    model: [
+      type: :string,
+      default: @default_model,
+      doc: "LLM model to use"
+    ],
+    max_steps: [
+      type: :integer,
+      default: @default_max_steps,
+      doc: "Maximum number of iterations"
+    ],
+    listener_pid: [
+      type: :pid,
+      doc: "Orchestrator PID (required for managed agents, automatically provided)"
+    ],
+    llm_opts: [
+      type: :keyword_list,
+      default: @default_llm_opts,
+      doc: "Additional options for the LLM API"
+    ],
+    adapter: [
+      type: :atom,
+      default: @default_adapter,
+      doc: "InstructorLite adapter module"
+    ],
+    response_schema: [
+      type: :atom,
+      doc: "Ecto schema module for structured LLM response (must use InstructorLite.Instruction)"
+    ]
+  )
+
   @doc """
   Creates a new agent configuration.
 
   ## Options
 
-  - `:name` - Agent name (default: :agent)
-  - `:instructions` - Instructions describing the agent's role and behavior (optional)
-  - `:tools` - List of tools available for this agent (default: [])
-    Tools can be either:
-    - `%CodeAgentEx.Tool{}` structs
-    - Plain maps with `:name`, `:description`, `:inputs`, `:output_type`, `:function` keys
-    Maps will be automatically converted to Tool structs.
-  - `:managed_agents` - List of sub-agents this agent can use (default: [])
-  - `:model` - LLM model to use (optional)
-  - `:max_steps` - Maximum number of iterations (optional)
-  - `:listener_pid` - Orchestrator PID (required for managed agents, automatically provided)
-  - `:llm_opts` - Additional options for the LLM API (default: [])
-  - `:adapter` - InstructorLite adapter module (default: InstructorLite.Adapters.ChatCompletionsCompatible)
-  - `:response_schema` - Ecto schema module for structured LLM response (optional)
-    When provided, this schema will be used for the final step instead of the default CodeStep.
-    Example: `MyApp.CustomResponseSchema` (must use InstructorLite.Instruction)
+  #{NimbleOptions.docs(@config_schema)}
+
+  ## Example
+
+      AgentConfig.new(
+        name: :math_agent,
+        instructions: "You are a math specialist",
+        tools: [Tool.final_answer()],
+        max_steps: 5
+      )
   """
   def new(opts \\ []) do
+    validated_opts = NimbleOptions.validate!(opts, @config_schema)
+
     # Normalize tools: convert maps to Tool structs
     normalized_opts =
-      case Keyword.get(opts, :tools) do
-        nil ->
-          opts
+      case validated_opts[:tools] do
+        [] ->
+          validated_opts
 
         tools ->
           normalized_tools = Enum.map(tools, &normalize_tool/1)
-          Keyword.put(opts, :tools, normalized_tools)
+          Keyword.put(validated_opts, :tools, normalized_tools)
       end
 
     struct!(__MODULE__, normalized_opts)
@@ -179,10 +225,12 @@ defmodule CodeAgentEx.AgentConfig do
   defp normalize_arg(arg) when is_list(arg), do: List.to_string(arg)
   defp normalize_arg(arg), do: arg
 
-  # Convert tool maps to Tool structs
+  # Convert tool maps to Tool structs with validation
   defp normalize_tool(%CodeAgentEx.Tool{} = tool), do: tool
 
   defp normalize_tool(tool_map) when is_map(tool_map) do
-    struct!(CodeAgentEx.Tool, tool_map)
+    # Convert map to keyword list for Tool.new/1
+    tool_opts = Map.to_list(tool_map)
+    CodeAgentEx.Tool.new(tool_opts)
   end
 end

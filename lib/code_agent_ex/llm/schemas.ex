@@ -55,4 +55,35 @@ defmodule CodeAgentEx.LLM.Schemas do
       field(:answer, :string)
     end
   end
+
+  defmodule MediaAttachment do
+    @moduledoc """
+    Schema for media attachments (images, videos, etc.)
+    """
+    use Ecto.Schema
+
+    @primary_key false
+    embedded_schema do
+      field(:type, :string)  # "image", "video", etc.
+      field(:path, :string)  # file path
+      field(:caption, :string)  # optional description
+    end
+  end
+
+  defmodule RichResponse do
+    @moduledoc """
+    Rich response schema that can include text and media attachments.
+
+    Used when the agent needs to return a response with images, videos,
+    or other media alongside text.
+    """
+    use Ecto.Schema
+    use InstructorLite.Instruction
+
+    @primary_key false
+    embedded_schema do
+      field(:text, :string)
+      embeds_many(:attachments, MediaAttachment)
+    end
+  end
 end
