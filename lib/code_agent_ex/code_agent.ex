@@ -45,10 +45,8 @@ defmodule CodeAgentEx.CodeAgent do
     :current_step,
     # Final result
     :final_result,
-    # List of image paths generated during execution
-    generated_images: [],
-    # List of video paths generated during execution
-    generated_videos: []
+    # Map of generated media by type: %{images: [...], videos: [...], audio: [...]}
+    generated_media: %{}
   ]
 
   @doc """
@@ -129,8 +127,7 @@ defmodule CodeAgentEx.CodeAgent do
             current_step: 0,
             final_result: nil,
             binding: cleaned_binding,
-            generated_images: [],
-            generated_videos: []
+            generated_media: %{}
         }
       else
         # New state
@@ -157,7 +154,11 @@ defmodule CodeAgentEx.CodeAgent do
 
     Logger.info("📝 [CodeAgent] Task: #{String.slice(task, 0, 100)}...")
 
-    execute_loop(state)
+    # Add the task to memory (similar to smolagents TaskStep)
+    # This ensures the task is in the conversation history for multi-turn contexts
+    state_with_task = %{state | memory: Memory.add_task(state.memory, task)}
+
+    execute_loop(state_with_task)
   end
 
   # Boucle principale ReAct
@@ -198,13 +199,13 @@ defmodule CodeAgentEx.CodeAgent do
     # Merge adapter into llm_opts
     llm_opts = Keyword.put(state.config.llm_opts, :adapter, state.config.adapter)
     case call_llm(state.config.model, messages, response_schema, llm_opts) do
-      {:ok, %Schemas.CodeStep{thought: thought, code: code}} ->
-        Logger.info("💭 [CodeAgent] Thought: #{String.slice(thought, 0, 100)}...")
-        Logger.debug("📝 [CodeAgent] Code:\n#{code}")
+      {:ok, %Schemas.CodeStep{} = code_step} ->
+        Logger.info("💭 [CodeAgent] Thought: #{String.slice(code_step.thought, 0, 100)}...")
+        Logger.debug("📝 [CodeAgent] Code:\n#{code_step.code}")
 
-        # Always send validation request to orchestrator
+        # Always send validation request to orchestrator with full code_step
         # Orchestrator decides whether to auto-approve or ask user
-        {:pending_validation, thought, code, %{state | current_step: step}}
+        {:pending_validation, code_step, %{state | current_step: step}}
 
       {:ok, custom_response} ->
         # Custom schema response (final step with custom schema)
@@ -246,11 +247,11 @@ defmodule CodeAgentEx.CodeAgent do
       {:ok, result, new_binding} ->
         Logger.info("✅ [CodeAgent] Code executed successfully")
 
-        # Track generated media (images and videos)
-        {new_generated_images, new_generated_videos} = extract_generated_media(result, state.generated_images, state.generated_videos)
+        # Track generated media (images, videos, audio, etc.) using LLMFormattable protocol
+        new_generated_media = extract_generated_media(result, state.generated_media)
 
         # Update state with new media before checking final answer
-        state_with_media = %{state | generated_images: new_generated_images, generated_videos: new_generated_videos}
+        state_with_media = %{state | generated_media: new_generated_media}
 
         # Check if this is a final answer
         case check_final_answer(result, new_binding, state_with_media) do
@@ -268,8 +269,7 @@ defmodule CodeAgentEx.CodeAgent do
                 binding: new_binding,
                 current_step: step,
                 final_result: answer,
-                generated_images: new_generated_images,
-                generated_videos: new_generated_videos
+                generated_media: new_generated_media
             }
 
             execute_loop(new_state)
@@ -287,8 +287,7 @@ defmodule CodeAgentEx.CodeAgent do
               | memory: Memory.add_step(state.memory, step_record),
                 binding: new_binding,
                 current_step: step,
-                generated_images: new_generated_images,
-                generated_videos: new_generated_videos
+                generated_media: new_generated_media
             }
 
             execute_loop(new_state)
@@ -324,17 +323,17 @@ defmodule CodeAgentEx.CodeAgent do
   - `{:feedback, message}` - Send back to LLM with feedback
   - `:reject` - Stop execution
   """
-  def continue_validation(decision, {thought, code, state}) do
+  def continue_validation(decision, {code_step, state}) do
     step = state.current_step
 
     # Handle validation decision
     case decision do
       :approve ->
-        execute_code(code, thought, step, state)
+        execute_code(code_step.code, code_step.thought, step, state)
 
       {:modify, new_code} ->
         Logger.info("📝 [CodeAgent] Code modified by user")
-        execute_code(new_code, thought, step, state)
+        execute_code(new_code, code_step.thought, step, state)
 
       {:feedback, message} ->
         Logger.info("💬 [CodeAgent] User feedback: #{String.slice(message, 0, 50)}...")
@@ -342,8 +341,8 @@ defmodule CodeAgentEx.CodeAgent do
         # Add feedback as error so LLM retries
         step_record = %{
           step: step,
-          thought: thought,
-          code: code,
+          thought: code_step.thought,
+          code: code_step.code,
           error: "User feedback: #{message}"
         }
 
@@ -364,13 +363,11 @@ defmodule CodeAgentEx.CodeAgent do
   defp build_messages(state) do
     tools = ensure_final_answer(state.config.tools)
     system_prompt = Prompts.system_prompt(tools, state.agent_tools, state.config.instructions)
-    task_prompt = Prompts.task_prompt(state.task)
     memory_messages = Memory.to_messages(state.memory)
 
-    [
-      %{role: "system", content: system_prompt},
-      %{role: "user", content: task_prompt}
-    ] ++ memory_messages
+    # Le task est déjà dans la mémoire (via Memory.add_task)
+    # Plus besoin de l'ajouter séparément comme dans l'ancienne version
+    [%{role: "system", content: system_prompt}] ++ memory_messages
   end
 
   # Call LLM with structured output via InstructorLite
@@ -388,42 +385,14 @@ defmodule CodeAgentEx.CodeAgent do
       nil ->
         :continue
 
-      answer when is_map(answer) ->
-        # If final answer is a map (from final_answer_with_media), merge generated media
-        merged_answer = merge_generated_media(answer, state)
-        {:final, merged_answer}
-
       answer ->
-        # Simple string answer, wrap it with generated media if any
-        if Enum.empty?(state.generated_images) and Enum.empty?(state.generated_videos) do
+        # Wrap answer with generated media if any
+        if map_size(state.generated_media) == 0 do
           {:final, answer}
         else
-          {:final, %{
-            text: answer,
-            images: state.generated_images,
-            videos: state.generated_videos
-          }}
+          {:final, Map.put(state.generated_media, :text, answer)}
         end
     end
-  end
-
-  # Merge generated media with the user-provided media in final answer
-  defp merge_generated_media(answer, state) do
-    # Get existing media from answer (keys are always atoms from final_answer_with_media)
-    existing_images = Map.get(answer, :images, [])
-    existing_videos = Map.get(answer, :videos, [])
-    text = Map.get(answer, :text, "")
-
-    # Merge with generated media (generated media first, then user-specified)
-    merged_images = (state.generated_images ++ existing_images) |> Enum.uniq()
-    merged_videos = (state.generated_videos ++ existing_videos) |> Enum.uniq()
-
-    # Return merged answer
-    %{
-      text: text,
-      images: merged_images,
-      videos: merged_videos
-    }
   end
 
   # Force a final answer when max_steps is reached
@@ -481,20 +450,16 @@ defmodule CodeAgentEx.CodeAgent do
     }
   end
 
-  # Extract media paths from execution result
-  # Handles {:image, path} and {:video, path} tuples and adds them to the lists
-  defp extract_generated_media(result, current_images, current_videos) do
-    case result do
-      {:image, path} when is_binary(path) ->
-        Logger.info("🖼️  [CodeAgent] Image generated: #{path}")
-        {[path | current_images] |> Enum.uniq(), current_videos}
+  # Extract media paths from execution result using LLMFormattable protocol
+  # Automatically detects and categorizes media files (images, videos, audio, etc.)
+  defp extract_generated_media(result, current_media) do
+    case CodeAgentEx.LLMFormattable.media_type(result) do
+      {:media, media_type, path} ->
+        Logger.info("📎 [CodeAgent] Media generated (#{media_type}): #{path}")
+        Map.update(current_media, media_type, [path], &([path | &1] |> Enum.uniq()))
 
-      {:video, path} when is_binary(path) ->
-        Logger.info("🎬 [CodeAgent] Video generated: #{path}")
-        {current_images, [path | current_videos] |> Enum.uniq()}
-
-      _ ->
-        {current_images, current_videos}
+      :not_media ->
+        current_media
     end
   end
 end

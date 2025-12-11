@@ -55,16 +55,40 @@ defmodule CodeAgentEx.Prompts do
     You MUST respond with a JSON object in the following format:
     {
       "thought": "Your reasoning about what to do next",
-      "code": "The Elixir code to execute"
+      "code": "The Elixir code to execute",
+      "safety_assessment": "safe or unsafe",
+      "safety_reasoning": "Brief explanation of why this code is safe or unsafe"
     }
 
     Example:
     {
       "thought": "I need to calculate the sum of 10 and 20",
-      "code": "result = 10 + 20\\nresult"
+      "code": "result = 10 + 20\\nresult",
+      "safety_assessment": "safe",
+      "safety_reasoning": "Only performs arithmetic calculation, no file access or dangerous operations"
     }
 
     The code will be executed in a sandbox and you'll see the result.
+
+    ## Safety Assessment
+
+    For each code step, you must assess whether it's safe or unsafe:
+    - **safe**: Read-only operations, API calls, calculations, data transformations
+    - **unsafe**: File writes, shell commands, code execution, data modifications
+
+    **IMPORTANT SAFETY RULE**:
+    If your code uses even ONE [UNSAFE] tool, you MUST mark the entire code step as "unsafe".
+    Only mark as "safe" if ALL tools used are [SAFE] or if no tools are used (pure calculations).
+
+    Examples:
+    - Code using only tools.wikipedia_search [SAFE] → safety_assessment: "safe"
+    - Code using tools.text_to_image [UNSAFE] → safety_assessment: "unsafe"
+    - Code using tools.wikipedia_search [SAFE] + tools.python_interpreter [UNSAFE] → safety_assessment: "unsafe"
+    - Code doing only "result = 10 + 20" (no tools) → safety_assessment: "safe"
+
+    Available tools have safety tags - use them as guidance:
+    - Tools marked as [SAFE] are always safe to use
+    - Tools marked as [UNSAFE] require careful justification
 
     ## Available Tools
 

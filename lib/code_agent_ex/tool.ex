@@ -14,11 +14,17 @@ defmodule CodeAgentEx.Tool do
           "expression" => %{type: "string", description: "Mathematical expression"}
         },
         output_type: "number",
-        function: fn expression -> ... end
+        function: fn expression -> ... end,
+        safety: :safe  # or :unsafe (default)
       }
+
+  ## Safety levels
+
+  - `:safe` - Read-only operations (API calls, searches, reads)
+  - `:unsafe` - Operations that can modify state (file writes, shell commands, code execution)
   """
 
-  defstruct [:name, :description, :inputs, :output_type, :function]
+  defstruct [:name, :description, :inputs, :output_type, :function, safety: :unsafe]
 
   @tool_schema NimbleOptions.new!(
     name: [
@@ -45,6 +51,11 @@ defmodule CodeAgentEx.Tool do
       type: {:custom, __MODULE__, :validate_function, []},
       required: true,
       doc: "The function to execute (can be any arity)"
+    ],
+    safety: [
+      type: {:in, [:safe, :unsafe]},
+      default: :unsafe,
+      doc: "Safety level: :safe (read-only) or :unsafe (can modify state)"
     ]
   )
 
@@ -112,8 +123,14 @@ defmodule CodeAgentEx.Tool do
       end)
       |> Enum.join("\n")
 
+    safety_badge =
+      case tool.safety do
+        :safe -> "[SAFE]"
+        :unsafe -> "[UNSAFE]"
+      end
+
     """
-    ### #{tool.name}
+    ### #{tool.name} #{safety_badge}
     #{tool.description}
 
     **Inputs:**
@@ -137,6 +154,7 @@ defmodule CodeAgentEx.Tool do
         "answer" => %{type: "any", description: "The final answer to return"}
       },
       output_type: "any",
+      safety: :safe,
       function: fn answer ->
         # Special marker to signal completion
         throw({:final_answer, answer})
@@ -144,46 +162,6 @@ defmodule CodeAgentEx.Tool do
     }
   end
 
-  @doc """
-  Tool to provide a final answer with media attachments (images, videos).
-
-  Example usage:
-    final_answer_with_media.(%{
-      text: "Here is the generated image",
-      images: ["/tmp/code_agent/image_123.png"]
-    })
-  """
-  def final_answer_with_media do
-    %__MODULE__{
-      name: :final_answer_with_media,
-      description: """
-      Provides the final answer with optional media attachments.
-      Use this when your answer includes images or other media files.
-
-      The parameter should be a map with:
-      - text: Your text answer
-      - images: List of image file paths (optional)
-      - videos: List of video file paths (optional)
-      """,
-      inputs: %{
-        "response" => %{
-          type: "map",
-          description: "Map with 'text' and optional 'images' or 'videos' keys"
-        }
-      },
-      output_type: "map",
-      function: fn response ->
-        # Normalize the response to ensure it has the right structure
-        normalized = %{
-          text: Map.get(response, "text") || Map.get(response, :text) || "",
-          images: Map.get(response, "images") || Map.get(response, :images) || [],
-          videos: Map.get(response, "videos") || Map.get(response, :videos) || []
-        }
-
-        throw({:final_answer, normalized})
-      end
-    }
-  end
 
   @doc """
   Tool to read a file.
@@ -196,6 +174,7 @@ defmodule CodeAgentEx.Tool do
         "path" => %{type: "string", description: "Path to the file to read"}
       },
       output_type: "string",
+      safety: :safe,
       function: fn path ->
         case File.read(path) do
           {:ok, content} -> content
@@ -217,6 +196,7 @@ defmodule CodeAgentEx.Tool do
         "content" => %{type: "string", description: "Content to write"}
       },
       output_type: "string",
+      safety: :unsafe,
       function: fn path, content ->
         case File.write(path, content) do
           :ok -> "File written successfully: #{path}"
@@ -237,6 +217,7 @@ defmodule CodeAgentEx.Tool do
         "command" => %{type: "string", description: "Shell command to execute"}
       },
       output_type: "string",
+      safety: :unsafe,
       function: fn command ->
         case System.cmd("sh", ["-c", command], stderr_to_stdout: true) do
           {output, 0} -> output
@@ -257,6 +238,7 @@ defmodule CodeAgentEx.Tool do
         "url" => %{type: "string", description: "URL to fetch"}
       },
       output_type: "string",
+      safety: :safe,
       function: fn url ->
         case Req.get(url) do
           {:ok, %{status: status, body: body}} when status in 200..299 ->

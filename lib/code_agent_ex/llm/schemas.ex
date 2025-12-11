@@ -13,6 +13,7 @@ defmodule CodeAgentEx.LLM.Schemas do
     The LLM must provide:
     - thought: Reasoning about what to do next
     - code: Elixir code to execute
+    - safety_assessment: Self-assessment of the code's safety level
     """
     use Ecto.Schema
     use InstructorLite.Instruction
@@ -21,6 +22,8 @@ defmodule CodeAgentEx.LLM.Schemas do
     embedded_schema do
       field(:thought, :string)
       field(:code, :string)
+      field(:safety_assessment, Ecto.Enum, values: [:safe, :unsafe], default: :unsafe)
+      field(:safety_reasoning, :string)
     end
   end
 

@@ -36,31 +36,43 @@ defmodule CodeAgentEx.AIValidator do
   @doc """
   Default validation prompt function.
 
-  Takes a map with keys: :thought, :code, :agent_name
+  Takes a validation request map with:
+  - :code_step - The CodeStep struct from the LLM
+  - :agent_name - Name of the agent
+
   Returns the prompt string with interpolated values.
   """
-  def default_prompt_fn(%{thought: thought, code: code, agent_name: agent_name}) do
+  def default_prompt_fn(%{code_step: code_step, agent_name: agent_name}) do
     """
     You are a code safety validator for an Elixir AI agent system. Analyze the following code execution request and decide if it should be approved.
 
     AGENT: #{agent_name}
 
     AGENT'S REASONING:
-    #{thought}
+    #{code_step.thought}
+
+    AGENT'S SAFETY SELF-ASSESSMENT:
+    - Assessment: #{code_step.safety_assessment}
+    - Reasoning: #{code_step.safety_reasoning || "No reasoning provided"}
 
     CODE TO EXECUTE:
     ```elixir
-    #{code}
+    #{code_step.code}
     ```
 
     IMPORTANT CONTEXT:
-    - The agent has access to tools via `tools.tool_name.(args)` syntax (e.g., `tools.final_answer.("result")`)
+    - The agent has access to tools via `tools.tool_name.(args)` syntax
     - The agent can call sub-agents via `agents.agent_name.(task)` syntax
     - These are valid Elixir function calls using anonymous functions from a binding
     - Variables persist between steps, so the agent can reference previously computed values
+    - Tools are marked as [SAFE] or [UNSAFE] in the agent's documentation
+    - The agent should mark code as "unsafe" if it uses ANY [UNSAFE] tool
 
     Analyze this code for:
-    1. **Safety**: No destructive operations, dangerous file access, or network calls
+    1. **Safety Assessment Verification**:
+       - Check if the agent's safety assessment is accurate
+       - If code uses ANY [UNSAFE] tool, it MUST be marked "unsafe"
+       - Verify no destructive operations, dangerous file access, or network calls
     2. **Correctness**: Does the code match the agent's stated intention?
     3. **Quality**: Is it clean, readable, and follows best practices?
 
@@ -72,11 +84,16 @@ defmodule CodeAgentEx.AIValidator do
     - feedback_message: If decision is "feedback", provide guidance for the agent (otherwise null)
 
     Guidelines:
+    - **AUTO-APPROVE** if agent says "safe" AND you agree AND code looks correct (safety_score >= 80)
     - APPROVE if safety_score >= 70 and code looks correct
     - MODIFY if code needs small fixes (syntax errors, minor improvements)
-    - FEEDBACK if agent misunderstood the task
-    - REJECT only for dangerous/malicious code (file deletion, system commands, etc.)
-    - Tool calls like `tools.final_answer.()` and agent calls like `agents.xxx.()` are VALID and SAFE
+    - FEEDBACK if agent's safety assessment is incorrect or agent misunderstood the task
+    - REJECT only for dangerous/malicious code or if agent marked "safe" but uses [UNSAFE] tools
+    - Tool calls like `tools.final_answer.()` are SAFE
+    - [UNSAFE] tools (python_interpreter, text_to_image, etc.) can be approved if:
+      1. Agent correctly marked the code as "unsafe"
+      2. The usage is justified and safe within the sandbox
+      3. No malicious intent detected
     """
   end
 
@@ -164,8 +181,7 @@ defmodule CodeAgentEx.AIValidator do
     %{
       agent_pid: agent_pid,
       agent_name: agent_name,
-      thought: thought,
-      code: code
+      code_step: code_step
     } = validation_request
 
     if verbose do
@@ -173,14 +189,14 @@ defmodule CodeAgentEx.AIValidator do
 
       ═══════════════════════════════════════════════════════════════════
       🤖 AI Validator analyzing code from '#{agent_name}'...
+      Safety: #{code_step.safety_assessment} - #{code_step.safety_reasoning}
       ═══════════════════════════════════════════════════════════════════
       """)
     end
 
     # Call prompt function with validation data
     prompt = prompt_fn.(%{
-      thought: thought,
-      code: code,
+      code_step: code_step,
       agent_name: agent_name
     })
 

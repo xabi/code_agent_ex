@@ -18,7 +18,7 @@ defmodule CodeAgentEx.AgentServer do
     - decision: :approve | {:modify, code} | {:feedback, msg} | :reject
 
   ### Sent by the GenServer (send)
-  - `{:pending_validation, agent_pid, thought, code}` - Request validation
+  - `{:pending_validation, agent_pid, code_step}` - Request validation (code_step is a CodeStep struct)
   - `{:final_result, agent_pid, result}` - Final result
   - `{:error, agent_pid, reason}` - Error occurred
   - `{:step_completed, agent_pid, step_info}` - Step notification
@@ -33,8 +33,10 @@ defmodule CodeAgentEx.AgentServer do
 
       # Parent agent receives messages
       receive do
-        {:pending_validation, ^agent_pid, thought, code} ->
+        {:pending_validation, ^agent_pid, code_step} ->
           # Ask user
+          IO.puts("Code: \#{code_step.code}")
+          IO.puts("Safety: \#{code_step.safety_assessment}")
           AgentServer.continue(agent_pid, :approve)
 
         {:final_result, ^agent_pid, result} ->
@@ -141,9 +143,9 @@ defmodule CodeAgentEx.AgentServer do
         Logger.warning("[AgentServer #{state.config.name}] No pending validation to continue")
         {:noreply, state}
 
-      {thought, code, agent_state} ->
+      {code_step, agent_state} ->
         # Normal validation continuation - execute directly
-        result = continue_execution(decision, thought, code, agent_state, state)
+        result = continue_execution(decision, code_step, agent_state, state)
         new_state = handle_continue_result(result, state)
         {:noreply, new_state}
     end
@@ -171,14 +173,14 @@ defmodule CodeAgentEx.AgentServer do
         send(server_state.parent_pid, {:final_result, self(), final_result, agent_state})
         %{server_state | status: :completed, agent_state: agent_state}
 
-      {:pending_validation, thought, code, agent_state} ->
+      {:pending_validation, code_step, agent_state} ->
         Logger.info("[AgentServer #{server_state.config.name}] Validation required")
-        send(server_state.parent_pid, {:pending_validation, self(), thought, code})
+        send(server_state.parent_pid, {:pending_validation, self(), code_step})
 
         %{
           server_state
           | status: :pending_validation,
-            pending_validation: {thought, code, agent_state}
+            pending_validation: {code_step, agent_state}
         }
 
       {:rejected, agent_state} ->
@@ -194,12 +196,12 @@ defmodule CodeAgentEx.AgentServer do
   end
 
   # Continues execution after validation - returns result tuple
-  defp continue_execution(decision, thought, code, agent_state, server_state) do
+  defp continue_execution(decision, code_step, agent_state, server_state) do
     Logger.info(
       "[AgentServer #{server_state.config.name}] Continuing with decision: #{inspect(decision)}"
     )
 
-    CodeAgent.continue_validation(decision, {thought, code, agent_state})
+    CodeAgent.continue_validation(decision, {code_step, agent_state})
   end
 
   # Handles continuation result (same as handle_execution_result)

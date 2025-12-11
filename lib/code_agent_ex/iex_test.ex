@@ -335,15 +335,22 @@ defmodule CodeAgentEx.IexTest do
       # Start orchestrator with AI validation
       {:ok, orch} = AgentOrchestrator.start_link(config, validation_handler: validation_handler)
 
-      case AgentOrchestrator.run_task(orch, task) do
-        {:ok, result} ->
+      # run_task is now async - wait for result message
+      AgentOrchestrator.run_task(orch, task)
+
+      receive do
+        {:final_result, ^orch, result} ->
           IO.puts("\n✅ Final Result: #{result}")
           IO.puts("\nThe AI validator analyzed all code executions for safety and correctness!\n")
           {:ok, result}
 
-        {:error, reason} ->
+        {:error, ^orch, reason} ->
           IO.puts("\n❌ Error: #{inspect(reason)}")
           {:error, reason}
+      after
+        120_000 ->
+          IO.puts("\n⏱ Timeout waiting for result")
+          {:error, :timeout}
       end
     end
   end

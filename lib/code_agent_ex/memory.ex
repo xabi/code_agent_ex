@@ -18,25 +18,39 @@ defmodule CodeAgentEx.Memory do
   end
 
   @doc """
-  Ajoute un step à la mémoire.
+  Adds a step to the memory.
   """
   def add_step(%__MODULE__{steps: steps} = memory, step) do
     %{memory | steps: steps ++ [step]}
   end
 
   @doc """
-  Convertit la mémoire en messages pour le LLM.
+  Adds a task step to the memory.
+  Used to mark the beginning of a new task in a multi-turn conversation.
+  """
+  def add_task(%__MODULE__{} = memory, task) do
+    add_step(memory, %{type: :task, task: task})
+  end
 
-  Chaque step devient un échange assistant/user:
-  - Assistant: le code exécuté
-  - User: le résultat ou l'erreur (observation)
+  @doc """
+  Converts the memory to messages for the LLM.
+
+  Different types of steps:
+  - Task step: task to accomplish (user message)
+  - Code step: thought + executed code (assistant) + observation (user)
   """
   def to_messages(%__MODULE__{steps: steps}) do
     steps
     |> Enum.flat_map(&step_to_messages/1)
   end
 
+  defp step_to_messages(%{type: :task} = step) do
+    # Task steps are just user messages with the task
+    [%{role: "user", content: step.task}]
+  end
+
   defp step_to_messages(step) do
+    # Code steps are assistant (code) + user (observation)
     assistant_content = format_assistant_message(step)
     user_content = format_observation(step)
 
