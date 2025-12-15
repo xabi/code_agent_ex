@@ -198,6 +198,7 @@ defmodule CodeAgentEx.CodeAgent do
     # Call LLM with appropriate schema
     # Merge adapter into llm_opts
     llm_opts = Keyword.put(state.config.llm_opts, :adapter, state.config.adapter)
+
     case call_llm(state.config.model, messages, response_schema, llm_opts) do
       {:ok, %Schemas.CodeStep{} = code_step} ->
         Logger.info("💭 [CodeAgent] Thought: #{String.slice(code_step.thought, 0, 100)}...")
@@ -243,74 +244,65 @@ defmodule CodeAgentEx.CodeAgent do
 
   # Process the execution result (extracted for clarity)
   defp process_execution_result(exec_result, code, thought, step, state) do
-    case exec_result do
-      {:ok, result, new_binding} ->
-        Logger.info("✅ [CodeAgent] Code executed successfully")
+    new_state =
+      case exec_result do
+        {:ok, result, new_binding} ->
+          Logger.info("✅ [CodeAgent] Code executed successfully")
 
-        # Track generated media (images, videos, audio, etc.) using LLMFormattable protocol
-        new_generated_media = extract_generated_media(result, state.generated_media)
+          # Track generated media (images, videos, audio, etc.) using LLMFormattable protocol
+          new_generated_media = extract_generated_media(result, state.generated_media)
 
-        # Update state with new media before checking final answer
-        state_with_media = %{state | generated_media: new_generated_media}
+          # Update state with new media before checking final answer
+          state_with_media = %{state | generated_media: new_generated_media}
 
-        # Check if this is a final answer
-        case check_final_answer(result, new_binding, state_with_media) do
-          {:final, answer} ->
-            step_record = %{
-              step: step,
-              thought: thought,
-              code: code,
-              result: result
-            }
+          # Build step record for successful execution
+          step_record = %{
+            step: step,
+            thought: thought,
+            code: code,
+            result: result
+          }
 
-            new_state = %{
-              state
-              | memory: Memory.add_step(state.memory, step_record),
-                binding: new_binding,
-                current_step: step,
-                final_result: answer,
-                generated_media: new_generated_media
-            }
+          # Check if this is a final answer and build state accordingly
+          case check_final_answer(result, new_binding, state_with_media) do
+            {:final, answer} ->
+              %{
+                state
+                | memory: Memory.add_step(state.memory, step_record),
+                  binding: new_binding,
+                  current_step: step,
+                  final_result: answer,
+                  generated_media: new_generated_media
+              }
 
-            execute_loop(new_state)
+            :continue ->
+              %{
+                state
+                | memory: Memory.add_step(state.memory, step_record),
+                  binding: new_binding,
+                  current_step: step,
+                  generated_media: new_generated_media
+              }
+          end
 
-          :continue ->
-            step_record = %{
-              step: step,
-              thought: thought,
-              code: code,
-              result: result
-            }
+        {:error, error} ->
+          Logger.error("❌ [CodeAgent] Execution error: #{inspect(error)}")
 
-            new_state = %{
-              state
-              | memory: Memory.add_step(state.memory, step_record),
-                binding: new_binding,
-                current_step: step,
-                generated_media: new_generated_media
-            }
+          step_record = %{
+            step: step,
+            thought: thought,
+            code: code,
+            error: inspect(error)
+          }
 
-            execute_loop(new_state)
-        end
+          %{
+            state
+            | memory: Memory.add_step(state.memory, step_record),
+              current_step: step
+          }
+      end
 
-      {:error, error} ->
-        Logger.error("❌ [CodeAgent] Execution error: #{inspect(error)}")
-
-        step_record = %{
-          step: step,
-          thought: thought,
-          code: code,
-          error: inspect(error)
-        }
-
-        new_state = %{
-          state
-          | memory: Memory.add_step(state.memory, step_record),
-            current_step: step
-        }
-
-        execute_loop(new_state)
-    end
+    execute_loop(new_state)
   end
 
   @doc """
@@ -365,8 +357,6 @@ defmodule CodeAgentEx.CodeAgent do
     system_prompt = Prompts.system_prompt(tools, state.agent_tools, state.config.instructions)
     memory_messages = Memory.to_messages(state.memory)
 
-    # Le task est déjà dans la mémoire (via Memory.add_task)
-    # Plus besoin de l'ajouter séparément comme dans l'ancienne version
     [%{role: "system", content: system_prompt}] ++ memory_messages
   end
 
@@ -375,9 +365,6 @@ defmodule CodeAgentEx.CodeAgent do
     # Use the new Client based on InstructorLite
     Client.chat_completion(model, messages, response_schema, llm_opts)
   end
-
-  # Note: parse_response is no longer needed as InstructorLite handles parsing
-  # Keeping it for backward compatibility but it won't be called in the new flow
 
   defp check_final_answer(_result, binding, state) do
     # Check if __final_answer__ is in the binding
@@ -410,6 +397,7 @@ defmodule CodeAgentEx.CodeAgent do
 
     # Use CodeStep schema to force code generation with final_answer call
     llm_opts = Keyword.put(state.config.llm_opts, :adapter, state.config.adapter)
+
     case call_llm(state.config.model, messages, Schemas.CodeStep, llm_opts) do
       {:ok, %Schemas.CodeStep{code: code}} ->
         case Executor.execute_sandboxed(code, state.binding) do

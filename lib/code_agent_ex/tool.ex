@@ -156,8 +156,8 @@ defmodule CodeAgentEx.Tool do
       output_type: "any",
       safety: :safe,
       function: fn answer ->
-        # Special marker to signal completion
-        throw({:final_answer, answer})
+        # Return a special marker tuple to signal completion
+        {:__final_answer__, answer}
       end
     }
   end

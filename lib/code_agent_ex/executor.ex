@@ -24,7 +24,7 @@ defmodule CodeAgentEx.Executor do
 
       result = 25 * 4
       result = result + 10
-      final_answer.(result)
+      tools.final_answer.(result)
 
   ## Parameters
 
@@ -39,8 +39,7 @@ defmodule CodeAgentEx.Executor do
   ## Final Answer
 
   The binding is updated with `__final_answer__` only if the code
-  calls `final_answer/1`, which throws `{:final_answer, value}`.
-  Like in smolagents with FinalAnswerException.
+  calls `tools.final_answer.(value)`, which returns `{:__final_answer__, value}`.
   """
   def execute_sandboxed(code, binding) do
     Logger.debug("🔒 [Executor] Executing code:\n#{code}")
@@ -52,7 +51,7 @@ defmodule CodeAgentEx.Executor do
     # Reuse previous bindings (variables defined in previous steps)
     eval_binding = prepare_binding(binding)
 
-    # Execute with Code.eval_string (with throw handling for final_answer)
+    # Execute with Code.eval_string
     try do
       {result, new_binding} = Code.eval_string(code, eval_binding)
 
@@ -60,18 +59,21 @@ defmodule CodeAgentEx.Executor do
       # This allows variables to be reused from one step to another
       updated_binding = merge_bindings(binding, new_binding)
 
+      # Check if the result is a final_answer marker
+      updated_binding =
+        case result do
+          {:__final_answer__, answer} ->
+            Map.put(updated_binding, :__final_answer__, answer)
+
+          _ ->
+            updated_binding
+        end
+
       {:ok, result, updated_binding}
     rescue
       e ->
         Logger.error("🔒 [Executor] Execution error: #{Exception.message(e)}")
         {:error, Exception.message(e)}
-    catch
-      :throw, {:final_answer, answer} ->
-        # Capture final_answer throw (like FinalAnswerException in smolagents)
-        # Mark binding as containing a final_answer
-        updated_binding = Map.put(binding, :__final_answer__, answer)
-
-        {:ok, answer, updated_binding}
     end
   end
 
