@@ -28,19 +28,18 @@ defmodule CodeAgentEx.AgentOrchestrator do
 
   ## Usage
 
-      # Start orchestrator with agent config and task
-      {:ok, orchestrator_pid} = AgentOrchestrator.start_link(agent_config, task)
+      {:ok, orch} = AgentOrchestrator.start_link(agent_config)
 
-      # Wait for messages
+      # Synchronous (preferred): blocks until the task completes
+      {:ok, result} = AgentOrchestrator.run_task(orch, "Calculate 5 + 3")
+
+      # Asynchronous: results arrive as messages to the caller of start_link/2
+      :ok = AgentOrchestrator.run_task_async(orch, "Calculate 5 + 3")
+
       receive do
-        {:validation_request, orchestrator_pid, agent_info, code_step} ->
-          # Show to user, get decision
-          IO.puts("Code: \#{code_step.code}")
-          IO.puts("Safety: \#{code_step.safety_assessment}")
-          AgentOrchestrator.submit_decision(orchestrator_pid, :approve)
-
-        {:final_result, orchestrator_pid, result} ->
-          IO.puts("Result: \#{result}")
+        {:final_result, ^orch, result} -> IO.puts("Result: \#{result}")
+        {:error, ^orch, reason} -> IO.puts("Error: \#{inspect(reason)}")
+        {:rejected, ^orch} -> IO.puts("Rejected")
       end
   """
 
@@ -49,6 +48,8 @@ defmodule CodeAgentEx.AgentOrchestrator do
 
   alias CodeAgentEx.{AgentSupervisor, AgentServer}
 
+  @default_task_timeout 120_000
+
   defstruct [
     # PID of the client who started the orchestrator
     :client_pid,
@@ -56,7 +57,7 @@ defmodule CodeAgentEx.AgentOrchestrator do
     :agent_config,
     # PID of the main agent (if running)
     :main_agent_pid,
-    # Current status: :idle | :running | :waiting_validation | :completed | :failed
+    # Current status: :idle | :running | :waiting_validation | :completed | :failed | :rejected
     :status,
     # Current validation being processed
     :current_validation,
@@ -69,6 +70,8 @@ defmodule CodeAgentEx.AgentOrchestrator do
     :validation_handler,
     # Agent state persisted between tasks (memory, binding, etc.)
     :agent_state,
+    # GenServer.from waiting on a synchronous run_task/2 call (nil when async)
+    :task_from,
     # Map of sub-agent tracking: %{agent_pid => %{from, agent_name}}
     sub_agents: %{}
   ]
@@ -121,13 +124,38 @@ defmodule CodeAgentEx.AgentOrchestrator do
   end
 
   @doc """
-  Runs a task asynchronously.
+  Runs a task synchronously and waits for completion.
 
-  This is a non-blocking call that starts task execution immediately.
   The orchestrator maintains agent state between calls, enabling
   multi-turn conversations with context.
 
-  Results are sent via messages:
+  ## Returns
+
+  - `{:ok, result}` - Task completed successfully
+  - `{:error, reason}` - Task failed or orchestrator is busy
+  - `{:error, :rejected}` - Task was rejected by validation
+
+  ## Example
+
+      {:ok, orch} = AgentOrchestrator.start_link(config)
+
+      with {:ok, answer1} <- AgentOrchestrator.run_task(orch, "What is 2 + 2?"),
+           {:ok, answer2} <- AgentOrchestrator.run_task(orch, "Multiply that by 3") do
+        {answer1, answer2}
+      end
+
+  For non-blocking execution, use `run_task_async/2`.
+  """
+  def run_task(orchestrator_pid, task, timeout \\ @default_task_timeout) do
+    GenServer.call(orchestrator_pid, {:run_task, task}, timeout)
+  end
+
+  @doc """
+  Runs a task asynchronously.
+
+  Non-blocking: starts execution and returns `:ok` immediately.
+  Results are sent as messages to the process that called `start_link/2`:
+
   - `{:final_result, orchestrator_pid, result}` - Task completed successfully
   - `{:error, orchestrator_pid, reason}` - Task failed
   - `{:rejected, orchestrator_pid}` - Task was rejected
@@ -135,17 +163,16 @@ defmodule CodeAgentEx.AgentOrchestrator do
   ## Example
 
       {:ok, orch} = AgentOrchestrator.start_link(config)
-      AgentOrchestrator.run_task(orch, "Calculate 5 + 3")
+      :ok = AgentOrchestrator.run_task_async(orch, "Calculate 5 + 3")
 
       receive do
         {:final_result, ^orch, res} -> IO.puts("Result: \#{res}")
-        {:error, ^orch, reason} -> IO.puts("Error: \#{reason}")
+        {:error, ^orch, reason} -> IO.puts("Error: \#{inspect(reason)}")
+        {:rejected, ^orch} -> IO.puts("Rejected")
       end
-
-  Returns `:ok`.
   """
-  def run_task(orchestrator_pid, task) do
-    GenServer.cast(orchestrator_pid, {:run_task, task})
+  def run_task_async(orchestrator_pid, task) do
+    GenServer.cast(orchestrator_pid, {:run_task_async, task})
   end
 
   @doc """
@@ -218,6 +245,52 @@ defmodule CodeAgentEx.AgentOrchestrator do
 
 
   @impl true
+  def handle_call({:run_task, task}, from, state) do
+    Logger.info("[AgentOrchestrator] Running task (sync): #{String.slice(task, 0, 50)}...")
+
+    case start_main_agent(task, state) do
+      {:ok, new_state} ->
+        # Reply later via GenServer.reply/2 when the agent finishes
+        {:noreply, %{new_state | task_from: from}}
+
+      {:error, :busy} ->
+        {:reply, {:error, :busy}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, %{state | status: :failed, error: reason}}
+    end
+  end
+
+  def handle_call(:get_status, _from, state) do
+    status_info = %{
+      status: state.status,
+      has_current_validation: state.current_validation != nil,
+      result: state.result,
+      error: state.error
+    }
+
+    {:reply, status_info, state}
+  end
+
+  def handle_call(:get_state, _from, state) do
+    # Return the full orchestrator state - let the view handle what to display
+    {:reply, state, state}
+  end
+
+  def handle_call({:track_sub_agent, agent_pid, agent_name}, from, state) do
+    Logger.info(
+      "[AgentOrchestrator] Tracking sub-agent '#{agent_name}' (#{inspect(agent_pid)}) for #{inspect(from)}"
+    )
+
+    # Store the caller's info so we can reply when the sub-agent completes
+    sub_agent_info = %{from: from, agent_name: agent_name}
+    new_sub_agents = Map.put(state.sub_agents, agent_pid, sub_agent_info)
+
+    # Don't reply yet - we'll reply when we receive {:final_result, agent_pid, result}
+    {:noreply, %{state | sub_agents: new_sub_agents}}
+  end
+
+  @impl true
   def handle_cast({:submit_decision, decision}, state) do
     Logger.info("[AgentOrchestrator] Received decision: #{inspect(decision)}")
 
@@ -235,20 +308,18 @@ defmodule CodeAgentEx.AgentOrchestrator do
     end
   end
 
-  @impl true
-  def handle_cast({:run_task, task}, state) do
-    Logger.info("[AgentOrchestrator] Running task: #{String.slice(task, 0, 50)}...")
+  def handle_cast({:run_task_async, task}, state) do
+    Logger.info("[AgentOrchestrator] Running task (async): #{String.slice(task, 0, 50)}...")
 
-    # Start the main agent under supervision
-    case AgentSupervisor.start_agent(state.agent_config, self()) do
-      {:ok, agent_pid} ->
-        # Run the task with previous agent_state for context preservation
-        AgentServer.run(agent_pid, task, state.agent_state)
-        {:noreply, %{state | main_agent_pid: agent_pid, status: :running}}
+    case start_main_agent(task, state) do
+      {:ok, new_state} ->
+        {:noreply, %{new_state | task_from: nil}}
+
+      {:error, :busy} ->
+        send(state.client_pid, {:error, self(), :busy})
+        {:noreply, state}
 
       {:error, reason} ->
-        Logger.error("[AgentOrchestrator] Failed to start agent: #{inspect(reason)}")
-        # Send error message to client
         send(state.client_pid, {:error, self(), reason})
         {:noreply, %{state | status: :failed, error: reason}}
     end
@@ -262,7 +333,6 @@ defmodule CodeAgentEx.AgentOrchestrator do
     {:noreply, state}
   end
 
-  @impl true
   def handle_info({:pending_validation, agent_pid, code_step}, state) do
     Logger.info("[AgentOrchestrator] Validation request from agent #{inspect(agent_pid)}")
 
@@ -284,7 +354,6 @@ defmodule CodeAgentEx.AgentOrchestrator do
     {:noreply, %{state | status: :running}}
   end
 
-  @impl true
   def handle_info({:final_result, agent_pid, result, agent_state}, state) do
     Logger.info("[AgentOrchestrator] Final result from agent #{inspect(agent_pid)}")
 
@@ -294,11 +363,16 @@ defmodule CodeAgentEx.AgentOrchestrator do
         # Main agent finished
         Logger.info("[AgentOrchestrator] Main agent completed, saving agent_state for next task")
 
-        # Send result to client
-        send(state.client_pid, {:final_result, self(), result})
-
         AgentServer.stop(agent_pid)
-        {:noreply, %{state | status: :completed, result: result, agent_state: agent_state}}
+        new_state = %{
+          state
+          | status: :completed,
+            result: result,
+            agent_state: agent_state,
+            main_agent_pid: nil
+        }
+
+        {:noreply, reply_task_caller(new_state, {:ok, result})}
 
       %{from: from} ->
         # Sub-agent finished, reply to the waiting GenServer.call
@@ -315,18 +389,15 @@ defmodule CodeAgentEx.AgentOrchestrator do
     end
   end
 
-  @impl true
   def handle_info({:error, agent_pid, reason}, state) do
     Logger.error("[AgentOrchestrator] Error from agent #{inspect(agent_pid)}: #{inspect(reason)}")
 
     # Check if it's a sub-agent or main agent
     case Map.get(state.sub_agents, agent_pid) do
       nil ->
-        # Main agent error - send to client
-        send(state.client_pid, {:error, self(), reason})
-
         AgentServer.stop(agent_pid)
-        {:noreply, %{state | status: :failed, error: reason}}
+        new_state = %{state | status: :failed, error: reason, main_agent_pid: nil}
+        {:noreply, reply_task_caller(new_state, {:error, reason})}
 
       %{from: from} ->
         # Sub-agent error, reply with error message
@@ -338,59 +409,70 @@ defmodule CodeAgentEx.AgentOrchestrator do
     end
   end
 
-  @impl true
   def handle_info({:rejected, agent_pid}, state) do
     Logger.info("[AgentOrchestrator] Execution rejected by agent #{inspect(agent_pid)}")
 
-    # Send rejection message to client
-    send(state.client_pid, {:rejected, self()})
-
-    # Stop the agent
     AgentServer.stop(agent_pid)
-
-    {:noreply, %{state | status: :rejected}}
+    new_state = %{state | status: :rejected, main_agent_pid: nil}
+    {:noreply, reply_task_caller(new_state, {:error, :rejected})}
   end
 
-  @impl true
   def handle_info({:agent_progress, info}, state) do
     # Forward progress notifications to client
     send(state.client_pid, {:agent_progress, self(), info})
     {:noreply, state}
   end
 
-  @impl true
-  def handle_call(:get_status, _from, state) do
-    status_info = %{
-      status: state.status,
-      has_current_validation: state.current_validation != nil,
-      result: state.result,
-      error: state.error
-    }
-
-    {:reply, status_info, state}
-  end
-
-  @impl true
-  def handle_call(:get_state, _from, state) do
-    # Return the full orchestrator state - let the view handle what to display
-    {:reply, state, state}
-  end
-
-  @impl true
-  def handle_call({:track_sub_agent, agent_pid, agent_name}, from, state) do
-    Logger.info(
-      "[AgentOrchestrator] Tracking sub-agent '#{agent_name}' (#{inspect(agent_pid)}) for #{inspect(from)}"
-    )
-
-    # Store the caller's info so we can reply when the sub-agent completes
-    sub_agent_info = %{from: from, agent_name: agent_name}
-    new_sub_agents = Map.put(state.sub_agents, agent_pid, sub_agent_info)
-
-    # Don't reply yet - we'll reply when we receive {:final_result, agent_pid, result}
-    {:noreply, %{state | sub_agents: new_sub_agents}}
-  end
-
   ## Private Functions
+
+  defp start_main_agent(_task, %{status: status}) when status in [:running, :waiting_validation] do
+    {:error, :busy}
+  end
+
+  defp start_main_agent(_task, %{task_from: task_from}) when not is_nil(task_from) do
+    {:error, :busy}
+  end
+
+  defp start_main_agent(task, state) do
+    case AgentSupervisor.start_agent(state.agent_config, self()) do
+      {:ok, agent_pid} ->
+        AgentServer.run(agent_pid, task, state.agent_state)
+
+        {:ok,
+         %{
+           state
+           | main_agent_pid: agent_pid,
+             status: :running,
+             result: nil,
+             error: nil
+         }}
+
+      {:error, reason} ->
+        Logger.error("[AgentOrchestrator] Failed to start agent: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  # Reply to a sync run_task caller, or notify the async client via messages.
+  defp reply_task_caller(%{task_from: nil} = state, {:ok, result}) do
+    send(state.client_pid, {:final_result, self(), result})
+    state
+  end
+
+  defp reply_task_caller(%{task_from: nil} = state, {:error, :rejected}) do
+    send(state.client_pid, {:rejected, self()})
+    state
+  end
+
+  defp reply_task_caller(%{task_from: nil} = state, {:error, reason}) do
+    send(state.client_pid, {:error, self(), reason})
+    state
+  end
+
+  defp reply_task_caller(%{task_from: from} = state, reply) do
+    GenServer.reply(from, reply)
+    %{state | task_from: nil}
+  end
 
   defp get_agent_name(agent_pid, state) do
     cond do

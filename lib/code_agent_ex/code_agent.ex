@@ -12,7 +12,7 @@ defmodule CodeAgentEx.CodeAgent do
         model: "meta-llama/Llama-4-Scout-17B-16E-Instruct"
       )
 
-      {:ok, result, _state} = CodeAgentEx.CodeAgent.run(
+      {:ok, result} = CodeAgentEx.CodeAgent.run(
         "Calculate 25 * 4 and add 10",
         config
       )
@@ -100,13 +100,12 @@ defmodule CodeAgentEx.CodeAgent do
     # Start orchestrator with validation_handler option (no task required)
     {:ok, orch_pid} = AgentOrchestrator.start_link(config, orchestrator_opts)
 
-    # Run task synchronously using GenServer.call
-    result = AgentOrchestrator.run_task(orch_pid, task)
-
-    # Stop orchestrator
-    AgentOrchestrator.stop(orch_pid)
-
-    result
+    try do
+      # Blocks until the task completes: {:ok, result} | {:error, reason}
+      AgentOrchestrator.run_task(orch_pid, task)
+    after
+      AgentOrchestrator.stop(orch_pid)
+    end
   end
 
   def run_direct(task, %AgentConfig{} = config, previous_state \\ nil) do
