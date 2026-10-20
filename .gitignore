@@ -64,3 +64,4 @@ test_*.exs.output
 # Local test scripts (not part of mix test)
 test_*.exs
 !test/
+.mise.toml

@@ -15,17 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reusable orchestrator with state preservation between tasks
 - Custom validation handlers (interactive, AI-powered, logging)
 - Support for managed agents (sub-agents) with automatic validation propagation
+- `AgentOrchestrator.run_task_async/2` for non-blocking message-based execution
 
 ### Changed
 - Refactored validation system from `auto_approve` boolean to flexible `validation_handler` function
 - Updated API: removed `require_validation` from agent configs (now handled by orchestrator)
 - Return values: `{:ok, result, state}` → `{:ok, result}` (state managed internally)
 - Validation flow: agents send validation requests to orchestrator instead of direct send/receive
+- `AgentOrchestrator.run_task/2` is now **synchronous** and returns `{:ok, result}` | `{:error, reason}`
+- `CodeAgent.run/3` correctly waits for the orchestrator result before stopping it
 
 ### Fixed
 - GenServer-based agent communication using call/reply instead of send/receive
 - Proper cleanup of agent processes via supervision tree
 - Context preservation between multiple tasks on same orchestrator
+- `CodeAgent.run/3` no longer returns `:ok` immediately from an async cast (API mismatch with docs)
 
 ## [0.1.0] - 2025-01-05
 

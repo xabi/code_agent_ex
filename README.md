@@ -77,7 +77,7 @@ config = AgentConfig.new(
   max_steps: 5
 )
 
-{:ok, result, _state} = CodeAgent.run(
+{:ok, result} = CodeAgent.run(
   "Calculate the factorial of 10 and format it nicely",
   config
 )
@@ -113,7 +113,7 @@ CodeAgent.run(
   "Calculate 25 * 4, then add 10 to the result",
   config
 )
-# => {:ok, "110", state}
+# => {:ok, "110"}
 ```
 
 ### Example 2: Custom Tools
