@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proper cleanup of agent processes via supervision tree
 - Context preservation between multiple tasks on same orchestrator
 - `CodeAgent.run/3` no longer returns `:ok` immediately from an async cast (API mismatch with docs)
+- `AgentServer` no longer blocks its GenServer mailbox during LLM/code execution (work runs in a monitored worker process)
 
 ## [0.1.0] - 2025-01-05
 
