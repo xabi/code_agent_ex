@@ -10,6 +10,10 @@ defmodule CodeAgentEx.AgentServer do
   - Supervision and fault tolerance
   - Isolated state per agent
 
+  Long-running work (LLM calls and code execution) runs in a monitored
+  worker process so the GenServer stays responsive to `:continue`, `:stop`,
+  and status queries while a step is in flight.
+
   ## Supported Messages
 
   ### Sent to the GenServer (cast/call)
@@ -19,9 +23,9 @@ defmodule CodeAgentEx.AgentServer do
 
   ### Sent by the GenServer (send)
   - `{:pending_validation, agent_pid, code_step}` - Request validation (code_step is a CodeStep struct)
-  - `{:final_result, agent_pid, result}` - Final result
+  - `{:final_result, agent_pid, result, agent_state}` - Final result
   - `{:error, agent_pid, reason}` - Error occurred
-  - `{:step_completed, agent_pid, step_info}` - Step notification
+  - `{:rejected, agent_pid}` - Execution rejected
 
   ## Usage Example
 
@@ -39,7 +43,7 @@ defmodule CodeAgentEx.AgentServer do
           IO.puts("Safety: \#{code_step.safety_assessment}")
           AgentServer.continue(agent_pid, :approve)
 
-        {:final_result, ^agent_pid, result} ->
+        {:final_result, ^agent_pid, result, _agent_state} ->
           IO.puts("Result: \#{result}")
       end
   """
@@ -49,6 +53,8 @@ defmodule CodeAgentEx.AgentServer do
 
   alias CodeAgentEx.CodeAgent
 
+  @agent_opts [:execute_fun, :continue_fun]
+
   ## Client API
 
   @doc """
@@ -57,10 +63,14 @@ defmodule CodeAgentEx.AgentServer do
   ## Options
   - `agent_config` - Agent configuration (%AgentConfig{})
   - `parent_pid` - PID of parent process that will receive messages
-  - `opts` - GenServer options (optional)
+  - `opts` - Keyword list:
+    - GenServer options (`:name`, etc.)
+    - `:execute_fun` - `(task, config, previous_state -> result)` (default: `CodeAgent.run_direct/3`)
+    - `:continue_fun` - `(decision, {code_step, agent_state} -> result)` (default: `CodeAgent.continue_validation/2`)
   """
   def start_link(agent_config, parent_pid, opts \\ []) do
-    GenServer.start_link(__MODULE__, {agent_config, parent_pid}, opts)
+    {agent_opts, genserver_opts} = Keyword.split(opts, @agent_opts)
+    GenServer.start_link(__MODULE__, {agent_config, parent_pid, agent_opts}, genserver_opts)
   end
 
   @doc """
@@ -87,6 +97,15 @@ defmodule CodeAgentEx.AgentServer do
   end
 
   @doc """
+  Returns the current agent status (`:idle`, `:running`, `:pending_validation`, etc.).
+
+  This is a synchronous call and must remain responsive while a worker is running.
+  """
+  def get_status(agent_pid) do
+    GenServer.call(agent_pid, :get_status)
+  end
+
+  @doc """
   Stops the agent gracefully.
   """
   def stop(agent_pid) do
@@ -96,10 +115,12 @@ defmodule CodeAgentEx.AgentServer do
   ## Server Callbacks
 
   @impl true
-  def init({agent_config, parent_pid}) do
+  def init({agent_config, parent_pid, agent_opts}) do
     Logger.info(
       "[AgentServer] Starting agent '#{agent_config.name}' (parent: #{inspect(parent_pid)})"
     )
+
+    Process.flag(:trap_exit, true)
 
     state = %{
       config: agent_config,
@@ -107,61 +128,171 @@ defmodule CodeAgentEx.AgentServer do
       status: :idle,
       current_task: nil,
       agent_state: nil,
-      pending_validation: nil
+      pending_validation: nil,
+      worker_pid: nil,
+      worker_ref: nil,
+      execute_fun: Keyword.get(agent_opts, :execute_fun, &CodeAgent.run_direct/3),
+      continue_fun: Keyword.get(agent_opts, :continue_fun, &CodeAgent.continue_validation/2)
     }
 
     {:ok, state}
   end
 
   @impl true
-  def handle_cast({:run, task, previous_state, from_pid}, state) do
-    Logger.info("[AgentServer #{state.config.name}] Received :run from #{inspect(from_pid)}")
-
-    # Notify parent of start
-    send(state.parent_pid, {:agent_started, self(), state.config.name})
-
-    # Store previous_state if provided (for context preservation)
-    state_with_context = %{state | agent_state: previous_state}
-
-    # The execution will block, but that's okay - the GenServer waits for validation
-    result = execute_task(task, state_with_context)
-
-    # Handle result - update state accordingly
-    new_state = handle_execution_result(result, state_with_context)
-
-    {:noreply, new_state}
+  def handle_call(:get_status, _from, state) do
+    {:reply, state.status, state}
   end
 
   @impl true
+  def handle_cast({:run, task, previous_state, from_pid}, state) do
+    Logger.info("[AgentServer #{state.config.name}] Received :run from #{inspect(from_pid)}")
+
+    cond do
+      state.worker_pid != nil ->
+        Logger.warning(
+          "[AgentServer #{state.config.name}] Ignoring :run — worker already in flight"
+        )
+
+        {:noreply, state}
+
+      state.status == :pending_validation ->
+        Logger.warning(
+          "[AgentServer #{state.config.name}] Ignoring :run — waiting for validation decision"
+        )
+
+        {:noreply, state}
+
+      true ->
+        send(state.parent_pid, {:agent_started, self(), state.config.name})
+
+        state = %{
+          state
+          | agent_state: previous_state,
+            current_task: task,
+            status: :running,
+            pending_validation: nil
+        }
+
+        {:noreply, start_worker(state, fn -> state.execute_fun.(task, state.config, previous_state) end)}
+    end
+  end
+
   def handle_cast({:continue, decision, from_pid}, state) do
     Logger.info(
       "[AgentServer #{state.config.name}] Received :continue with #{inspect(decision)} from #{inspect(from_pid)}"
     )
 
-    case state.pending_validation do
-      nil ->
+    cond do
+      state.worker_pid != nil ->
+        Logger.warning(
+          "[AgentServer #{state.config.name}] Ignoring :continue — worker already in flight"
+        )
+
+        {:noreply, state}
+
+      state.pending_validation == nil ->
         Logger.warning("[AgentServer #{state.config.name}] No pending validation to continue")
         {:noreply, state}
 
-      {code_step, agent_state} ->
-        # Normal validation continuation - execute directly
-        result = continue_execution(decision, code_step, agent_state, state)
-        new_state = handle_continue_result(result, state)
-        {:noreply, new_state}
+      true ->
+        {code_step, agent_state} = state.pending_validation
+        continue_fun = state.continue_fun
+
+        state = %{
+          state
+          | pending_validation: nil,
+            status: :running
+        }
+
+        {:noreply,
+         start_worker(state, fn ->
+           continue_fun.(decision, {code_step, agent_state})
+         end)}
     end
+  end
+
+  @impl true
+  def handle_info({:worker_result, worker_pid, result}, %{worker_pid: worker_pid} = state) do
+    state = clear_worker(state)
+    {:noreply, handle_execution_result(result, state)}
+  end
+
+  def handle_info({:worker_result, _other_pid, _result}, state) do
+    # Stale result from a killed/previous worker
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ref, :process, pid, :normal}, %{worker_ref: ref, worker_pid: pid} = state) do
+    # Normal exit — {:worker_result, ...} carries the outcome; keep monitoring state
+    # until that message is handled (demonitor happens there).
+    {:noreply, state}
+  end
+
+  def handle_info({:DOWN, ref, :process, pid, reason}, %{worker_ref: ref, worker_pid: pid} = state) do
+    Logger.error(
+      "[AgentServer #{state.config.name}] Worker crashed: #{inspect(reason)}"
+    )
+
+    state = clear_worker(state)
+    send(state.parent_pid, {:error, self(), {:worker_crashed, reason}})
+    {:noreply, %{state | status: :failed}}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:EXIT, _pid, _reason}, state) do
+    # trap_exit: ignore linked exits we don't own as workers
+    {:noreply, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    kill_worker(state)
+    :ok
   end
 
   ## Private Functions
 
-  # Executes a task in the agent - returns result tuple
-  defp execute_task(task, server_state) do
-    Logger.info(
-      "[AgentServer #{server_state.config.name}] Executing task: #{String.slice(task, 0, 50)}..."
-    )
+  defp start_worker(state, work_fun) do
+    server = self()
+    name = state.config.name
 
-    # Use run_direct to avoid creating nested orchestrators
-    # Pass previous agent_state for context preservation
-    CodeAgent.run_direct(task, server_state.config, server_state.agent_state)
+    {worker_pid, worker_ref} =
+      spawn_monitor(fn ->
+        Logger.info("[AgentServer #{name}] Worker started")
+
+        result =
+          try do
+            work_fun.()
+          rescue
+            e ->
+              {:error, Exception.message(e), nil}
+          catch
+            kind, reason ->
+              {:error, {kind, reason}, nil}
+          end
+
+        send(server, {:worker_result, self(), result})
+      end)
+
+    %{state | worker_pid: worker_pid, worker_ref: worker_ref, status: :running}
+  end
+
+  defp clear_worker(%{worker_ref: ref} = state) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    %{state | worker_pid: nil, worker_ref: nil}
+  end
+
+  defp clear_worker(state), do: %{state | worker_pid: nil, worker_ref: nil}
+
+  defp kill_worker(%{worker_pid: nil}), do: :ok
+
+  defp kill_worker(%{worker_pid: pid, worker_ref: ref}) do
+    if is_reference(ref), do: Process.demonitor(ref, [:flush])
+    Process.exit(pid, :kill)
+    :ok
   end
 
   # Handles execution result and updates state
@@ -180,7 +311,8 @@ defmodule CodeAgentEx.AgentServer do
         %{
           server_state
           | status: :pending_validation,
-            pending_validation: {code_step, agent_state}
+            pending_validation: {code_step, agent_state},
+            agent_state: agent_state
         }
 
       {:rejected, agent_state} ->
@@ -192,20 +324,14 @@ defmodule CodeAgentEx.AgentServer do
         Logger.error("[AgentServer #{server_state.config.name}] Task failed: #{inspect(reason)}")
         send(server_state.parent_pid, {:error, self(), reason})
         %{server_state | status: :failed, agent_state: agent_state}
+
+      other ->
+        Logger.error(
+          "[AgentServer #{server_state.config.name}] Unexpected worker result: #{inspect(other)}"
+        )
+
+        send(server_state.parent_pid, {:error, self(), {:unexpected_result, other}})
+        %{server_state | status: :failed}
     end
-  end
-
-  # Continues execution after validation - returns result tuple
-  defp continue_execution(decision, code_step, agent_state, server_state) do
-    Logger.info(
-      "[AgentServer #{server_state.config.name}] Continuing with decision: #{inspect(decision)}"
-    )
-
-    CodeAgent.continue_validation(decision, {code_step, agent_state})
-  end
-
-  # Handles continuation result (same as handle_execution_result)
-  defp handle_continue_result(result, server_state) do
-    handle_execution_result(result, server_state)
   end
 end
